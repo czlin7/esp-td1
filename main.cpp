@@ -4,10 +4,10 @@
 #include <stdbool.h>
 
 #include "potentiometer.h"
-//#include "vec2f.h" // vector coordinates
+#include "vec2f.h" // vector coordinates
 
 // ============================================
-// FSM Enums
+// Enums
 // ============================================
 
 // FSM states
@@ -20,10 +20,29 @@ enum ProgramState {
   SNone
 }; // FSM ProgramState
 
+typedef enum { UI_NAV, UI_EDIT } UI_State;
+
+// UI states
+typedef enum {
+  UI_FOCUS_STATUS,
+  UI_FOCUS_DUTY,
+  UI_FOCUS_SPEED,
+  UI_FOCUS_MODE,
+  UI_FOCUS_DIRECTION
+} UI_Focus;
+
+// UI control states
+typedef struct {
+  UI_State state;
+  UI_Focus focus;
+} UI;
 
 
+// ============================================
+// struct MotorSignals
+// ============================================
+// Control Signals towards Motor Driver board
 struct MotorSignals {
-  // Control Signals towards Motor Driver board
   bool motor_enable;   // Motors Disabled by default
   bool motor_unipolar; // H-Bridge Mode, Unipolar by default
   bool motor_dir;      // Default direction is Forwards
@@ -36,20 +55,6 @@ struct MotorSignals {
         duty_cycle(50) {}
 };
 
-typedef enum { UI_NAV, UI_EDIT } UI_State;
-
-typedef enum {
-  UI_FOCUS_STATUS,
-  UI_FOCUS_DUTY,
-  UI_FOCUS_SPEED,
-  UI_FOCUS_MODE,
-  UI_FOCUS_DIRECTION
-} UI_Focus;
-
-typedef struct {
-  UI_State state;
-  UI_Focus focus;
-} UI;
 
 // UI Controller
 class UIController {
