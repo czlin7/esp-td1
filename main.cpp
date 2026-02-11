@@ -1,12 +1,9 @@
 #include "C12832.h"
 #include "mbed.h"
-#include <PwmOut.h>
-#include <stdbool.h>
-
-//test
 
 #include "potentiometer.h"
 #include "vec2f.h" // vector coordinates
+#include <cstdint>
 
 // ============================================
 // Enums
@@ -41,25 +38,26 @@ typedef struct {
 
 
 // ============================================
-// struct MotorSignals
+// MotorSignals
 // ============================================
 // Control Signals towards Motor Driver board
 struct MotorSignals {
-  bool motor_enable;   // Motors Disabled by default
-  bool motor_unipolar; // H-Bridge Mode, Unipolar by default
-  bool motor_dir;      // Default direction is Forwards
-  uint8_t duty_cycle;  // Any default value for PWM signal
-
-  float encoder_speed_ms; // encoder speed in m/s // No default value
+  bool motor_enable;      // disabled by default
+  bool motor_unipolar;    // unipolar by default
+  bool motor_dir;         // forward by default
+  uint8_t duty_cycle;     // 0..100
+  float encoder_speed_ms; // m/s
 
   MotorSignals()
       : motor_enable(false), motor_unipolar(true), motor_dir(true),
-        duty_cycle(50) {}
+        duty_cycle(50), encoder_speed_ms(0.0f) {}
 };
 
-
-// UI Controller
+// ============================================
+// UIController
+// ============================================
 class UIController {
+private:
   UI m_ui;
 
   C12832 *m_lcd;
@@ -67,7 +65,11 @@ class UIController {
 
 public:
   UIController(C12832 *lcd, MotorSignals *motor_sig)
-      : m_lcd(lcd), m_motor_sig(motor_sig) {}
+      : m_lcd(lcd), m_motor_sig(motor_sig) {
+    // default UI states
+    m_ui.state = UI_NAV;
+    m_ui.focus = UI_FOCUS_STATUS;
+  }
 
   void renderDisplay() {
     m_lcd->locate(0, 0);
@@ -100,25 +102,42 @@ public:
 
 }; // UI Controller struct
 
-// LCD
+// LCD instance
 C12832 lcd(D11, D13, D12, D7, D10);
+
+// PWM LED
+PwmOut pwmRedLED(D5);
 
 // ============================================
 // main
 // ============================================
 int main() {
   MotorSignals motor_sig;
-  UIController ui_controller(&lcd, &motor_sig);
+  UIController ui(&lcd, &motor_sig);
 
-  SamplingPotentiometer potL(A0, 3.3f, 200.0f);
+  /// SETUP
+  /// Hardware confuguration before the loop
+  SamplingPotentiometer potL(
+      A0, 3.3f, 200.0f); // potentiometer sampling freq chosen: 200 Hz
   SamplingPotentiometer potR(A1, 3.3f, 200.0f);
 
-  // 1. SETUP: Configure the hardware ONCE before the loop
-  //pwmRedLED.period(0.02f); // 20ms period (50Hz)
-  //pwmRedLED.write(potR.Potentiometer::getCurrentSampleNorm()); // 50% duty cycle
+  pwmRedLED.period(0.02f); // 20ms period (50Hz)
+  // 
+  // cycle
 
-  ui_controller.renderDisplay();
+  const float ui_period_s = 0.10f; // 10 Hz UI refresh
+
   // 2. LOOP: Do nothing (or do other tasks) while PWM runs in background
   while (1) {
+    // manual control of motor_sig
+    motor_sig.duty_cycle =
+        (uint8_t)(potR.Potentiometer::getCurrentSampleNorm() * 100.0f);
+        pwmRedLED.write(motor_sig.duty_cycle); // TODO: for TD1, later change to the motor instance
+
+        // Render UI
+        ui.renderDisplay();
+
+    wait(ui_period_s); // NOTE: can be altered later to adjust sensor sampling
+                       // period.
   }
 }
