@@ -1,5 +1,23 @@
+#pragma once
+
 #include "mbed.h"
 #include <cmath>
+
+// ============================================
+// MotorData
+// ============================================
+// Control Signals towards Motor Driver board
+struct MotorData {
+  bool motor_enable;      // disabled by default
+  bool motor_unipolar;    // unipolar by default
+  bool motor_dir;         // forward by default
+  float duty_cycle;     // 0..100
+  float encoder_speed_ms; // m/s
+
+  MotorData()
+      : motor_enable(false), motor_unipolar(true), motor_dir(true),
+        duty_cycle(0.5), encoder_speed_ms(0.0f) {}
+};
 
 class Motor {
 private:

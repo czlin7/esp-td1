@@ -5,3 +5,4 @@ compile_commands.json
 .cache
 mbed
 C12832
+QEI

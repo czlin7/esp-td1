@@ -1,4 +1,4 @@
-#pragma ONCE
+#pragma once
 
 class Vec2f {
 private:

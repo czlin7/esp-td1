@@ -1,6 +1,9 @@
+#pragma once
+
 #include "mbed.h"
 #include "QEI.h"
-#include <cmath>
+
+static float M_PI = 3.14159265359f;
 
 class WheelEncoder {
     private:
@@ -11,7 +14,7 @@ class WheelEncoder {
         float previousTime;
         float velocity;
     public:
-        WheelEncoder(PinName A, PinName B, PinName index, float diameter, float gear_ratio, int cpr) : enc(A, B, index, cpr, X2_ENCODING), t() {
+        WheelEncoder(PinName A, PinName B, PinName index, float diameter, float gear_ratio, int cpr) : enc(A, B, index, cpr, QEI::X2_ENCODING), t() {
             float finalCPR = cpr * 2.0f; //effective cpr for x2 encoding mode
             functionVal = (M_PI * diameter) / (finalCPR * gear_ratio); //calculates the value for function f(x,y,z)
 
