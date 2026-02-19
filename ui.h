@@ -12,26 +12,28 @@ typedef struct {
     UiFocus focus;
 } UI;
 
-// ============================================
-// UIController
-// ============================================
+//UI controller class
 class UIController {
 private:
     UI m_ui;
 
     C12832 *m_lcd;
-    MotorData *m_motor_sig;
+    MotorData *m_motor_sig_L;
+    MotorData *m_motor_sig_R;
     SamplingPotentiometer *m_potL;
     SamplingPotentiometer *m_potR;
     InterruptIn *m_button;
+    InterruptIn *m_lbutton;
+    InterruptIn *m_rbutton;
     DigitalOut *m_ledR;
     DigitalOut *m_ledG;
     DigitalOut *m_ledB;
 
     volatile bool m_toggleRequested;
+    volatile bool m_LeftRequested;
+    volatile bool m_RightRequested;
     UiFocus m_prevFocus;
 
-    // ------------------------------------------------
     void setColor(float r, float g, float b) {
         *m_ledR = r;
         *m_ledG = g;
@@ -69,38 +71,65 @@ private:
 
         m_prevFocus = m_ui.focus;
     }
+    enum MotorSelect {
+            MOTOR_LEFT,
+            MOTOR_RIGHT
+        };
 
+        MotorSelect m_selectedMotor;
+        MotorData *m_motorL;
+        MotorData *m_motorR;
+        MotorData *m_activeMotor;   // pointer to whichever is selected
 public:
-
     UIController(C12832 *lcd,
-                 MotorData *motor_sig,
+                 MotorData *motor_sig_L,
+                 MotorData *motor_sig_R,
                  SamplingPotentiometer *potL,
                  SamplingPotentiometer *potR,
                  InterruptIn *button,
+                 InterruptIn *Lbutton,
+                 InterruptIn *Rbutton,
                  DigitalOut *r,
                  DigitalOut *g,
                  DigitalOut *b)
         : m_lcd(lcd),
-          m_motor_sig(motor_sig),
+          m_motor_sig_L(motor_sig_L),
+          m_motor_sig_R(motor_sig_R),
+          m_motorL(motor_sig_L),
+          m_motorR(motor_sig_R),
           m_potL(potL),
           m_potR(potR),
           m_button(button),
+          m_lbutton(Lbutton),
+          m_rbutton(Rbutton),
           m_ledR(r),
           m_ledG(g),
           m_ledB(b),
           m_toggleRequested(false),
           m_prevFocus(Status)
     {
+        m_selectedMotor = MOTOR_LEFT;
+        m_activeMotor = m_motorL;
         m_ui.state = Navigation;
         m_ui.focus = Status;
 
         m_button->rise(callback(this, &UIController::onButtonISR));
+        m_lbutton->rise(callback(this, &UIController::onLeftISR));
+        m_rbutton->rise(callback(this, &UIController::onRightISR));
         updateModeLED();
     }
 
-    // ------------------------------------------------
+
     void onButtonISR() {
         m_toggleRequested = true;
+    }
+
+    void onLeftISR() {
+        m_LeftRequested = true;
+    }
+
+    void onRightISR() {
+        m_RightRequested = true;
     }
 
     void processButton() {
@@ -111,29 +140,48 @@ public:
         updateModeLED();
     }
 
-    // ------------------------------------------------
+    void processMotorSelection() {
+    if (m_LeftRequested) {
+        m_LeftRequested = false;
+        m_selectedMotor = MOTOR_LEFT;
+        m_activeMotor = m_motorL;
+    }
+
+    if (m_RightRequested) {
+        m_RightRequested = false;
+        m_selectedMotor = MOTOR_RIGHT;
+        m_activeMotor = m_motorR;
+    }
+}
+
+
+    // Function to render display of UI
     void renderDisplay() {
 
         updateSelector();
 
+        m_lcd->locate(1, 11);
+        m_lcd->printf("%s", 
+        m_selectedMotor == MOTOR_LEFT ? "Left" : "Right");
+
+
         m_lcd->locate(1, 1);
         m_lcd->printf("Status:%s",
-                      m_motor_sig->motor_enable ? "Enabled" : "Disabled");
+                      m_activeMotor->motor_enable ? "Enabled" : "Disabled");
 
         m_lcd->locate(1, 21);
         m_lcd->printf("Duty Cycle:%0.1f",
-                      m_motor_sig->duty_cycle);
+                      m_activeMotor->duty_cycle);
 
         m_lcd->locate(71, 1);
         m_lcd->printf("Mode:%s",
-                      m_motor_sig->motor_unipolar ? "Uni" : "Bi");
+                      m_activeMotor->motor_bipolar ? "Bi" : "Uni");
 
         m_lcd->locate(71, 21);
         m_lcd->printf("Direction:%s",
-                      m_motor_sig->motor_dir ? "Fw" : "Bw");
+                      m_activeMotor->motor_dir ? "Fw" : "Bw");
     }
 
-    // ------------------------------------------------
     void handleNavigation() {
 
         float navValue  = m_potL->getCurrentSampleNorm();
@@ -153,16 +201,16 @@ public:
         if (m_ui.state == Edit) {
 
             if (m_ui.focus == Duty)
-                m_motor_sig->duty_cycle = editValue;
+                m_activeMotor->duty_cycle = editValue;
 
             if (m_ui.focus == Dir)
-                m_motor_sig->motor_dir = (editValue >= 0.5f);
+                m_activeMotor->motor_dir = (editValue >= 0.5f);
 
             if (m_ui.focus == Mode)
-                m_motor_sig->motor_unipolar = (editValue >= 0.5f);
+                m_activeMotor->motor_bipolar = (editValue >= 0.5f);
 
             if (m_ui.focus == Status)
-                m_motor_sig->motor_enable = (editValue >= 0.5f);
+                m_activeMotor->motor_enable = (editValue >= 0.5f);
         }
     }
 };
