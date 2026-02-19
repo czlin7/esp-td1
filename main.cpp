@@ -24,40 +24,40 @@ DigitalOut B(D8);
 
 // Buggy instance
 // Motors
-Motor MotorL(PB_13,PC_2,PH_1); //2
-Motor MotorR(PB_14,PC_3,PH_0); //1
+Motor leftMotor(PB_13,PC_2,PH_1); //2
+Motor rightMotor(PB_14,PC_3,PH_0); //1
 // Encoders
 WheelEncoder leftEncoder (PC_10, PC_12, NC, 0.0766, 15, 256);
 WheelEncoder rightEncoder (PC_8, PC_6, NC, 0.0766, 15, 256);
 // Buggy Object
-Buggy LBuggy(&MotorL, &MotorR, &leftEncoder, &rightEncoder);
-DigitalOut En(PC_4);
+Buggy buggy(&leftMotor, &rightMotor, &leftEncoder, &rightEncoder);
+DigitalOut en(PC_4);
 
 // MAIN CODE
 int main() {
 // SETUP
   // Hardware confuguration before the loop
-  SamplingPotentiometer potL(A0, 3.3f, 200.0f);    // potentiometer sampling freq chosen: 200 Hz
-  SamplingPotentiometer potR(A1, 3.3f, 200.0f);
-  MotorData motor_sig_L;
-  MotorData motor_sig_R;                          // Motor Signal Struct Initialize
-  UIController ui(&lcd, &motor_sig_L, &motor_sig_R, &potL, &potR, &button, &Lbutton, &Rbutton, &R, &G, &B); // UI Object Initialize
+  SamplingPotentiometer leftPot(A0, 3.3f, 200.0f);    // potentiometer sampling freq chosen: 200 Hz
+  SamplingPotentiometer rightPot(A1, 3.3f, 200.0f);
+  MotorData leftMotorData;
+  MotorData rightMotorData;                          // Motor Signal Struct Initialize
+  UIController ui(&lcd, &leftMotorData, &rightMotorData, &leftPot, &rightPot, &button, &Lbutton, &Rbutton, &R, &G, &B); // UI Object Initialize
 
   const float ui_period_s = 0.10f; // 10 Hz UI refresh
 
   // Main while loop
   while (1) {
         // Editing Values of Left Motor
-        En.write(motor_sig_L.motor_enable);
-        MotorL.BiUni_Setter(motor_sig_L.motor_bipolar);
-        MotorL.DirectionModifier(motor_sig_L.motor_dir);
-        MotorL.PWMModifier(motor_sig_L.duty_cycle);
+        en.write(leftMotorData.motor_enable);
+        leftMotor.setMode(leftMotorData.motor_bipolar);
+        leftMotor.setDirection(leftMotorData.motor_dir);
+        leftMotor.setDuty(leftMotorData.duty_cycle);
 
         // Editing Values of Right Motor
-        En.write(motor_sig_R.motor_enable);
-        MotorL.BiUni_Setter(motor_sig_R.motor_bipolar);
-        MotorL.DirectionModifier(motor_sig_R.motor_dir);
-        MotorL.PWMModifier(motor_sig_R.duty_cycle);
+        en.write(rightMotorData.motor_enable);
+        leftMotor.setMode(rightMotorData.motor_bipolar);
+        leftMotor.setDirection(rightMotorData.motor_dir);
+        leftMotor.setDuty(rightMotorData.duty_cycle);
 
         // UI rendering
         ui.processMotorSelection();
