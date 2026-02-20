@@ -1,0 +1,238 @@
+#include "C12832.h"
+#include "buggy.h"
+#include "mbed.h"
+#include "potentiometer.h"
+#include <cstdint>
+#include "encoder.h"
+#include "motors.h"
+//RGB LED CLASS
+class rgbLED {
+private:
+    DigitalOut red, green, blue;
+
+public:
+    rgbLED (PinName red_p, PinName green_p, PinName blue_p): red(red_p), green(green_p), blue(blue_p) {}
+
+    void on() {
+        red = 0;
+        green = 0;
+        blue = 0;
+    }
+    void off() {
+        red = 1;
+        green = 1;
+        blue = 1;
+    }
+    void redOn() {
+        red = 0;
+        green = 1;
+        blue = 1;
+    }
+    void greenOn() {
+        red = 1;
+        green = 0;
+        blue = 1;
+    }
+    void blueOn() {
+        red = 1;
+        green = 1;
+        blue = 0;
+    }
+    void greenBlink() {
+        greenOn();
+        wait(0.5f);
+        off();
+        wait(0.5f);
+        greenOn();
+        wait(0.5f);
+        greenOn();
+        wait(0.5f);
+        off();
+        wait(0.5f);
+        greenOn();
+        wait(0.5f);
+    }
+};
+
+//Test States
+enum Test_States {
+    TEST_START,
+    TEST_LED,
+    TEST_LCD,
+    TEST_MOTOR_R,
+    TEST_MOTOR_L,
+    TEST_ENC,
+    TEST_SENSORS,
+    TEST_BLUETOOTH,
+    TEST_DONE
+};
+// LCD instance
+C12832 lcd(D11, D13, D12, D7, D10);
+
+//LED instance
+rgbLED LED(D5,D9,D8);
+
+//Interrupt and ISR
+InterruptIn startButton(D4);
+InterruptIn rightButton();
+volatile bool startRequested = false;
+
+// Buggy instance
+// Motors
+Motor MotorL(PB_13,PC_2,PH_1); //2
+Motor MotorR(PB_14,PC_3,PH_0); //1
+// Encoders
+WheelEncoder leftEncoder (PC_10, PC_12, NC, 0.0766, 15, 256);
+WheelEncoder rightEncoder (PC_8, PC_6, NC, 0.0766, 15, 256);
+// Buggy Object
+Buggy LBuggy(&MotorL, &MotorR, &leftEncoder, &rightEncoder);
+DigitalOut En(PC_4);
+
+void onStartButtonISR(){
+    startRequested = true;
+}
+Test_States State = TEST_START; //Test States Initialized
+void RunTest() {
+    switch (State) {
+        case TEST_START:
+        if (!startRequested) {
+            lcd.locate(5,10);
+            lcd.printf("Ready for Test");
+            State = TEST_START;
+        }
+        else {lcd.locate(5,10);
+        lcd.printf("Starting Test Sequence");
+        wait(2.0f);
+        lcd.cls();
+        State = TEST_LED;}
+        break;
+
+        case TEST_LED:
+        LED.on();
+        //wait(1.0f);
+        LED.redOn();
+        //wait(1.0f);
+        LED.greenOn();
+        //wait(1.0f);
+        LED.blueOn();
+        ///wait(1.0f);
+        LED.off();
+        lcd.locate(5,10);
+        lcd.printf("LED TEST DONE");
+        //wait(2.0f);
+        lcd.cls();
+        State = TEST_LCD;
+        break;
+
+        case TEST_LCD:
+        lcd.fillrect(0, 0, 127, 31, 1);
+        //wait(1.0f);
+        lcd.fillrect(0, 0, 127, 31, 0);
+        //wait(1.0f);
+        lcd.locate(5,10);
+        lcd.printf("LCD TEST DONE");
+        //wait(2.0f);
+        lcd.cls();
+        State = TEST_MOTOR_R;
+        break;
+
+        case TEST_MOTOR_R:
+        En.write(1);
+        MotorR.move(0.1);
+        lcd.locate(5,10);
+        lcd.printf("RIGHT MOTOR Forwards");
+        wait(2.0f);
+        //MotorR.move(0);
+        MotorR.move(-0.5);
+        lcd.locate(5,10);
+        lcd.printf("RIGHT MOTOR Backwards");
+        wait(2.0f);
+        MotorR.move(0);
+        En.write(0);
+        lcd.locate(5,10);
+        lcd.printf("RIGHT MOTOR TEST DONE");
+        wait(2.0f);
+        lcd.cls();
+        State = TEST_MOTOR_L;
+        break;
+
+        case TEST_MOTOR_L:
+        En.write(1);
+        MotorL.move(0.1);
+        lcd.locate(5,10);
+        lcd.printf("LEFT MOTOR Forwards");
+        wait(2.0f);
+        MotorL.move(0);
+        MotorL.move(-0.3);
+        lcd.locate(5,10);
+        lcd.printf("LEFT MOTOR Backwards");
+        wait(2.0f);
+        En.write(0);
+        lcd.locate(5,10);
+        lcd.printf("LEFT MOTOR TEST DONE");
+        wait(2.0f);
+        lcd.cls();
+        State = TEST_ENC;
+        break;
+
+        case TEST_ENC:
+        float dist = (leftEncoder.getDistance() + rightEncoder.getDistance())/2;
+        float rev = (leftEncoder.getRPM() + rightEncoder.getRPM())/2;
+        float velo = (leftEncoder.getVelocity() + rightEncoder.getVelocity())/2;
+        En.write(1);
+        LBuggy.moveDistance(1, 0.5);
+        lcd.locate(3,1);
+        lcd.printf("Avg Distance: %.2f",dist);
+        lcd.locate(3,9);
+        lcd.printf("Avg RPM: %.2f",rev);
+        lcd.locate(3,18);
+        lcd.printf("Avg Velocity: %.2f",velo);
+        wait(5);
+        En.write(0);
+        
+        lcd.locate(5,10);
+        lcd.printf("ENCODER TEST DONE");
+        wait(2.0f);
+        lcd.cls();
+        State = TEST_SENSORS;
+        break;
+
+        case TEST_SENSORS:
+        lcd.locate(5,10);
+        lcd.printf("SENSOR TEST DONE");
+        wait(2.0f);
+        lcd.cls();
+        State = TEST_BLUETOOTH;
+        break;
+
+        case TEST_BLUETOOTH:
+        lcd.locate(5,10);
+        lcd.printf("BLUETOOTH TEST DONE");
+        wait(2.0f);
+        lcd.cls();
+        State = TEST_DONE;
+        break;
+
+        case TEST_DONE:
+        lcd.locate(5,10);
+        lcd.printf("ALL TESTS DONE");
+        LED.greenBlink();
+        break;
+    }
+}
+
+
+
+// ============================================
+// MAIN TEST CODE
+// ============================================
+int main() {
+//Initialization code
+
+startButton.rise(&onStartButtonISR);
+LED.off();
+  while (1) {
+      RunTest();
+      wait(0.5f);
+  }
+}
