@@ -28,6 +28,7 @@ private:
     DigitalOut *m_ledR;
     DigitalOut *m_ledG;
     DigitalOut *m_ledB;
+    DigitalOut *m_en;
 
     volatile bool m_toggleRequested;
     volatile bool m_LeftRequested;
@@ -91,7 +92,8 @@ public:
                  InterruptIn *Rbutton,
                  DigitalOut *r,
                  DigitalOut *g,
-                 DigitalOut *b)
+                 DigitalOut *b,
+                DigitalOut *en)
         : m_lcd(lcd),
           m_motor_sig_L(motor_sig_L),
           m_motor_sig_R(motor_sig_R),
@@ -106,7 +108,8 @@ public:
           m_ledG(g),
           m_ledB(b),
           m_toggleRequested(false),
-          m_prevFocus(Status)
+          m_prevFocus(Status),
+            m_en(en)
     {
         m_selectedMotor = MOTOR_LEFT;
         m_activeMotor = m_motorL;
@@ -198,7 +201,7 @@ public:
         }
 
         // Edit mode
-        if (m_ui.state == Edit) {
+       // if (m_ui.state == Edit) {
 
             if (m_ui.focus == Duty)
                 m_activeMotor->duty_cycle = editValue;
@@ -212,5 +215,5 @@ public:
             if (m_ui.focus == Status)
                 m_activeMotor->motor_enable = (editValue >= 0.5f);
         }
-    }
+    //}
 };
