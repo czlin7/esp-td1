@@ -48,16 +48,16 @@ int main() {
   // Main while loop
   while (1) {
         // Editing Values of Left Motor
-        en.write(leftMotorData.motor_enable);
+        //en.write(leftMotorData.motor_enable);
         leftMotor.setMode(leftMotorData.motor_bipolar);
         leftMotor.setDirection(leftMotorData.motor_dir);
         leftMotor.setDuty(leftMotorData.duty_cycle);
 
         // Editing Values of Right Motor
-        en.write(rightMotorData.motor_enable);
-        leftMotor.setMode(rightMotorData.motor_bipolar);
-        leftMotor.setDirection(rightMotorData.motor_dir);
-        leftMotor.setDuty(rightMotorData.duty_cycle);
+        //en.write(rightMotorData.motor_enable);
+        rightMotor.setMode(rightMotorData.motor_bipolar);
+        rightMotor.setDirection(rightMotorData.motor_dir);
+        rightMotor.setDuty(rightMotorData.duty_cycle);
 
         // UI rendering
         ui.processMotorSelection();
