@@ -77,5 +77,8 @@ public:
         previousTick = 0;
         previousTime = t.read();
     }
+printf("L:%d,%.3f,%.2f,%.3f R:%d,%.3f,%.2f,%.3f\n",
+       left.getPulses(), left.getVelocity(), left.getRPM(), left.getDistance(),
+       right.getPulses(), right.getVelocity(), right.getRPM(), right.getDistance());
 };
 
