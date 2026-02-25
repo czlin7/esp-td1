@@ -5,6 +5,7 @@
 #include "motors.h"
 #include "potentiometer.h"
 #include "states.h"
+#include "buggy.h"
 
 // UI control states
 typedef struct {
@@ -28,6 +29,7 @@ private:
     DigitalOut *m_ledR;
     DigitalOut *m_ledG;
     DigitalOut *m_ledB;
+    Buggy *buggy;
 
     volatile bool m_toggleRequested;
     volatile bool m_LeftRequested;
@@ -91,7 +93,8 @@ public:
                  InterruptIn *Rbutton,
                  DigitalOut *r,
                  DigitalOut *g,
-                 DigitalOut *b)
+                 DigitalOut *b,
+                 Buggy *buggy)
         : m_lcd(lcd),
           m_motor_sig_L(motor_sig_L),
           m_motor_sig_R(motor_sig_R),
@@ -105,6 +108,7 @@ public:
           m_ledR(r),
           m_ledG(g),
           m_ledB(b),
+          buggy(buggy),
           m_toggleRequested(false),
           m_prevFocus(Status)
     {
@@ -187,7 +191,7 @@ public:
         float navValue  = m_potL->getCurrentSampleNorm();
         float editValue = m_potR->getCurrentSampleNorm();
 
-        // Navigation mode
+        // Navigation mode for menu
         if (m_ui.state == Navigation) {
 
             if      (navValue < 0.2f) m_ui.focus = Status;
@@ -210,7 +214,7 @@ public:
                 m_activeMotor->motor_bipolar = (editValue >= 0.5f);
 
             if (m_ui.focus == Status)
-                m_activeMotor->motor_enable = (editValue >= 0.5f);
+                buggy->setEnable(editValue >= 0.5f);
         }
     }
 };
