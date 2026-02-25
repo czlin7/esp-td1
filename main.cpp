@@ -41,20 +41,18 @@ int main() {
   SamplingPotentiometer rightPot(A1, 3.3f, 200.0f);
   MotorData leftMotorData;
   MotorData rightMotorData;                          // Motor Signal Struct Initialize
-  UIController ui(&lcd, &leftMotorData, &rightMotorData, &leftPot, &rightPot, &button, &Lbutton, &Rbutton, &R, &G, &B); // UI Object Initialize
+  UIController ui(&lcd, &leftMotorData, &rightMotorData, &leftPot, &rightPot, &button, &Lbutton, &Rbutton, &R, &G, &B, &buggy); // UI Object Initialize
 
   const float ui_period_s = 0.10f; // 10 Hz UI refresh
 
   // Main while loop
   while (1) {
         // Editing Values of Left Motor
-        en.write(leftMotorData.motor_enable);
         leftMotor.setMode(leftMotorData.motor_bipolar);
         leftMotor.setDirection(leftMotorData.motor_dir);
         leftMotor.setDuty(leftMotorData.duty_cycle);
 
         // Editing Values of Right Motor
-        en.write(rightMotorData.motor_enable);
         leftMotor.setMode(rightMotorData.motor_bipolar);
         leftMotor.setDirection(rightMotorData.motor_dir);
         leftMotor.setDuty(rightMotorData.duty_cycle);
