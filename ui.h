@@ -171,7 +171,7 @@ public:
 
         m_lcd->locate(1, 1);
         m_lcd->printf("Status:%s",
-                      m_activeMotor->motor_enable ? "Enabled" : "Disabled");
+                      buggy->getEnable() ? "Enabled" : "Disabled");
 
         m_lcd->locate(1, 21);
         m_lcd->printf("Duty Cycle:%0.1f",
