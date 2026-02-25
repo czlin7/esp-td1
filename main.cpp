@@ -30,7 +30,7 @@ Motor rightMotor(PB_14,PC_3,PH_0); //1
 WheelEncoder leftEncoder (PC_10, PC_12, NC, 0.0766, 15, 256);
 WheelEncoder rightEncoder (PC_8, PC_6, NC, 0.0766, 15, 256);
 // Buggy Object
-Buggy buggy(&leftMotor, &rightMotor, &leftEncoder, &rightEncoder);
+Buggy buggy(&leftMotor, &rightMotor, &leftEncoder, &rightEncoder,PC_4);
 DigitalOut en(PC_4);
 
 // MAIN CODE

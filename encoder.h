@@ -9,19 +9,17 @@ private:
     QEI enc;
     Timer t;
     float functionVal;
-    float CPR;
+    float finalCPR;
     int previousTick;
     float previousTime;
     float velocity;
-    float gear;
     float rpm;
-    
 public:
-    WheelEncoder(PinName A, PinName B, PinName index,float gear_ratio, int cpr) : 
+    WheelEncoder(PinName A, PinName B, PinName index, float diameter, float gear_ratio, int cpr) : 
         enc(A, B, index, cpr, QEI::X2_ENCODING), t() {
-        CPR = cpr; //effective cpr for x2 encoding mode
-        gear = gear_ratio;
-        functionVal = (PI * diameter) / (CPR * gear_ratio); //calculates the value for function f(x,y,z), meters per encoder tick
+        finalCPR = cpr * 2.0f; //effective cpr for x2 encoding mode
+        const float PI = 3.14159265359f;
+        functionVal = (PI * diameter) / (finalCPR * gear_ratio); //calculates the value for function f(x,y,z), meters per encoder tick
 
         //reset everything once
         previousTick = 0;
@@ -29,8 +27,7 @@ public:
         t.start();
         enc.reset();
     }
-    const float diameter = 0.079;
-    const float PI = 3.14159f;
+
     float getVelocity(void){
         int currentTick = enc.getPulses(); //update tick before timer activation
         float currentTime = t.read(); //update time elapsed by timer prior to timer activation
@@ -45,7 +42,7 @@ public:
 
         float tickRate = elapsedTick / elapsedTime; //ticks per second
         velocity = tickRate * functionVal; //meter per second
-        rpm = (tickRate / CPR) * 60.0f;
+        rpm = (tickRate / finalCPR) * 60.0f;
 
         previousTick = currentTick; //save the final tick value at the termination of this function
         previousTime = currentTime; //save the final time value at the termination of this function
@@ -53,17 +50,12 @@ public:
         return velocity;
     }
 
-    int getPulses(void) {
-        return enc.getPulses();
-    }
-
     float getRPM(void){
         return rpm;
     }
 
     float getDistance() {
-        float distance = (enc.getPulses() / (CPR*2))*(PI*diameter);
-        return (distance);
+        return enc.getPulses() * functionVal;
     }
 
     void reset() {
@@ -77,6 +69,4 @@ public:
         previousTick = 0;
         previousTime = t.read();
     }
-
 };
-
