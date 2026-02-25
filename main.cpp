@@ -24,14 +24,13 @@ DigitalOut B(D8);
 
 // Buggy instance
 // Motors
-Motor leftMotor(PB_13,PC_2,PH_1); //2
-Motor rightMotor(PB_14,PC_3,PH_0); //1
+Motor rightMotor(PA_15,PC_2,PA_14); //2
+Motor leftMotor(PB_7,PC_3,PA_13); //Pwm - Direction - Bipolar
 // Encoders
-WheelEncoder leftEncoder (PC_10, PC_12, NC, 0.0766, 15, 256);
-WheelEncoder rightEncoder (PC_8, PC_6, NC, 0.0766, 15, 256);
+WheelEncoder leftEncoder (PC_10, PC_12, NC, 10.0f, 256);
+WheelEncoder rightEncoder (PC_8, PC_6, NC,10.0f , 256);
 // Buggy Object
 Buggy buggy(&leftMotor, &rightMotor, &leftEncoder, &rightEncoder,PC_4);
-DigitalOut en(PC_4);
 
 // MAIN CODE
 int main() {
@@ -53,9 +52,9 @@ int main() {
         leftMotor.setDuty(leftMotorData.duty_cycle);
 
         // Editing Values of Right Motor
-        leftMotor.setMode(rightMotorData.motor_bipolar);
-        leftMotor.setDirection(rightMotorData.motor_dir);
-        leftMotor.setDuty(rightMotorData.duty_cycle);
+        rightMotor.setMode(rightMotorData.motor_bipolar);
+        rightMotor.setDirection(rightMotorData.motor_dir);
+        rightMotor.setDuty(rightMotorData.duty_cycle);
 
         // UI rendering
         ui.processMotorSelection();
