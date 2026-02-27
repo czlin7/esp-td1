@@ -1,120 +1,176 @@
-#pragma once
-
-#include "motors.h"
+#include "C12832.h"
+#include "buggy.h"
+#include "mbed.h"
+#include "potentiometer.h"
+#include <cstdint>
 #include "encoder.h"
+#include "motors.h"
+
+Serial pc(USBTX, USBRX); // tx, rx
 
 
-class Buggy {
+//RGB LED CLASS
+class rgbLED {
 private:
-    Motor *leftMotor;
-    Motor *rightMotor;
-    WheelEncoder *leftEncoder;
-    WheelEncoder *rightEncoder;
-    DigitalOut enable;
+    DigitalOut red, green, blue;
 
 public:
-    Buggy(Motor *L, Motor *R, WheelEncoder *LE, WheelEncoder *RE, PinName en) : leftMotor(L), rightMotor(R), leftEncoder(LE), rightEncoder(RE), enable(en) {}
+    rgbLED (PinName red_p, PinName green_p, PinName blue_p): red(red_p), green(green_p), blue(blue_p) {}
 
-    void setEnable(bool enable_signal) {
-        enable.write(enable_signal);
+    void on() {
+        red = 0;
+        green = 0;
+        blue = 0;
     }
-
-    bool getEnable() {
-        return enable.read();
+    void off() {
+        red = 1;
+        green = 1;
+        blue = 1;
     }
-
-void moveDistance(float targetDistance_m, float max_speed){
-       
-        leftEncoder->reset();
-        rightEncoder->reset();
-
-        enable.write(1);
-
-        float Kp_sync = 5000.0f; //increase this value to make error adjustment more significant, decrease to make error adjustment less significant
-        float Kp_speed = 4000.0f; //increase this value to make it stop faster, decrease to make it stop slower
-
-        // Moving while loop
-        while (true)
-        {
-            float distL = leftEncoder->getDistance();
-            float distR = rightEncoder->getDistance();
-            float averageDistance = (distR + distL) * 0.5f;
-         
-            float distanceRemaining = targetDistance_m - averageDistance;
-            
-            if (distanceRemaining <= 0.0f)
-                break;
-
-            int currentBaseSpeed = (int)(Kp_speed * distanceRemaining);
-
-            if (currentBaseSpeed > max_speed) {
-                currentBaseSpeed = max_speed;
-            }
-
-            if (currentBaseSpeed < 150) {
-                currentBaseSpeed = 150;
-            }
-
-            float error = distL - distR;
-            int adjustment = (int)(Kp_sync * error);
-
-            int leftSpeed = currentBaseSpeed - adjustment;
-            int rightSpeed = currentBaseSpeed + adjustment;
-
-            leftMotor->move(leftSpeed);
-            rightMotor->move(rightSpeed);
-
-            wait(0.0004f);
-        }
-        enable.write(0);
-        leftMotor->move(0);
-        rightMotor->move(0);
+    void redOn() {
+        red = 0;
+        green = 1;
+        blue = 1;
     }
-
-  void rotateAngle(float angle_deg, float speed){
-        const float PI = 3.14159265359f;
-        float angle_rad = angle_deg * PI/180.0f;
-        const float wheelBase = 0.17f; //adjust this value if turning is not turning desirably, approximately +-1 from 0.16
-
-        float targetDistance = (angle_rad * wheelBase) / 2.0f; //arclength
-
-        if (angle_deg < 0) {
-        targetDistance = targetDistance * 0.85f; //if it turns too far left, increase this value; and if it turns too less left, decrease this value
-        } //this section exists because the buggy acts up when turning left(negative angle values), probably because of hardware asymmetry somewhere
- 
-        leftEncoder->reset();
-        rightEncoder->reset();
-
-        int dirL = (angle_deg > 0) ? 1 : -1;
-        int dirR = (angle_deg > 0) ? -1 : 1;
-
-        float Kp = 5000.0f; //increase this value to make error adjustment more significant, decrease to make error adjustment less significant
-
-        enable.write(1);
-
-        while(true)
-        {
-            float distL = fabs(leftEncoder->getDistance());
-            float distR = fabs(rightEncoder->getDistance());
-            float avgDist = (distL + distR) * 0.5f;
-
-            if (avgDist >= fabs(targetDistance))
-                break;
-
-            float error = distL - distR;
-            int adjustment = (int)(Kp * error);
-
-            int currentLeftSpeed = dirL * ((int)speed - adjustment);
-            int currentRightSpeed = dirR * ((int)speed + adjustment);
-
-            leftMotor->move(currentLeftSpeed);
-            rightMotor->move(currentRightSpeed);
-
-            wait(0.0004f);
-        }
-
-        enable.write(0);
-        leftMotor->move(0);
-        rightMotor->move(0);
+    void greenOn() {
+        red = 1;
+        green = 0;
+        blue = 1;
+    }
+    void blueOn() {
+        red = 1;
+        green = 1;
+        blue = 0;
     }
 };
+
+//Test States
+enum Test_States {
+    TEST_START,
+    TEST_MOTOR_R,
+    TEST_MOTOR_L,
+    TEST_ENC,
+    TEST_SENSORS,
+    TEST_BLUETOOTH,
+    TEST_DONE
+};
+// LCD instance
+C12832 lcd(D11, D13, D12, D7, D10);
+
+//LED instance
+rgbLED LED(D5,D9,D8);
+
+//Interrupt and ISR
+InterruptIn startButton(D4);
+volatile bool startRequested = false;
+
+// Buggy instance
+// Motors
+Motor MotorR(PA_15,PC_2,PA_14); //2
+Motor MotorL(PB_7,PC_3,PA_13); //Pwm - Direction - Bipolar
+//DigitalOut BiL(PA_14);
+// Encoders
+WheelEncoder leftEncoder (PC_10, PC_12, NC, 10.0f, 256);
+WheelEncoder rightEncoder (PC_8, PC_6, NC,10.0f , 256);
+// Buggy Object
+Buggy LBuggy(&MotorL, &MotorR, &leftEncoder, &rightEncoder, PC_4);
+
+void onStartButtonISR(){
+    startRequested = true;
+}
+Test_States State = TEST_START; //Test States Initialized
+
+
+
+// ============================================
+// MAIN TEST CODE
+
+int main() {
+    pc.baud(115200);
+    //lcd.cls();
+    //lcd.locate(0,0);
+    //lcd.printf("L: %f\n", leftEncoder.getDistance());
+    //lcd.locate(0,10);
+    //lcd.printf("R: %f\n", rightEncoder.getDistance());
+    LED.blueOn();
+    wait(0.2f);
+    LED.redOn();
+    //}
+    LBuggy.setEnable(true);
+    MotorL.setMode(true);
+    MotorR.setMode(true);
+    LBuggy.moveDistance(0.55,350);
+    wait(1.0f);
+    LBuggy.rotateAngle(85, 300);
+    wait(1.0f);
+    //Side 1
+    LBuggy.moveDistance(0.55,350);
+    wait(1.0f);
+    LBuggy.rotateAngle(85, 300);
+    wait(1.0f);
+    //Side 2
+    LBuggy.moveDistance(0.55,350);
+    wait(1.0f);
+    LBuggy.rotateAngle(85, 300);
+    wait(1.0f);
+    //Side 3
+    LBuggy.moveDistance(0.55,350);
+    wait(1.0f);
+    // Side 4 and 180 turn
+    LBuggy.rotateAngle(180, 300);
+    wait(1.0f);
+    LBuggy.moveDistance(0.55,350);
+    wait(1.0f);
+    LBuggy.rotateAngle(-90, 300);
+    wait(1.0f);
+    //Side 5
+    LBuggy.moveDistance(0.55,350);
+    wait(1.0f);
+    LBuggy.rotateAngle(-90, 300);
+    wait(1.0f);
+    //SIde 6
+    LBuggy.moveDistance(0.55,350);
+    wait(1.0f);
+    LBuggy.rotateAngle(-90, 300);
+    wait(1.0f);
+    //Side 7
+    LBuggy.moveDistance(0.5,350);
+    wait(1.0f);
+    LBuggy.rotateAngle(180, 300);
+    wait(1.0f);
+
+    //while (true) {
+     ////   wait(2.0f);
+     //   pc.printf("L: %.2f\r\n", leftEncoder.getDistance());
+     //   pc.printf("R: %.2f\r\n", rightEncoder.getDistance());
+    //    MotorL.move(350);
+     //   MotorR.move(338);
+     //   leftEncoder.reset();
+     //   rightEncoder.reset();
+        //printf("L:%d,%.3f,%.2f,%.3f R:%d,%.3f,%.2f,%.3f\n",
+       //leftEncoder.getPulses(), leftEncoder.getVelocity(), leftEncoder.getRPM(), leftEncoder.getDistance(),
+       //rightEncoder.getPulses(), rightEncoder.getVelocity(), rightEncoder.getRPM(), rightEncoder.getDistance());
+     //   wait(2.0f);
+     ///   MotorL.move(0);
+     //   MotorR.move(0);
+    //}
+
+    
+    //Side 8
+    //LBuggy.rotateAngle(90, 350);
+//Initialization code
+//LBuggy.setEnable(true);
+
+//lcd.printf("Done 1m");
+//MotorL.setMode(false);
+//BiL.write(1);
+//MotorR.setMode(false);
+//MotorL.setDirection(0);
+//MotorR.setDirection(0);
+//MotorL.setDuty(0);
+//MotorR.setDuty(1);
+LED.greenOn();
+
+wait(1.0f);
+
+  }
