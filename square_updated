@@ -1,0 +1,120 @@
+#pragma once
+
+#include "motors.h"
+#include "encoder.h"
+
+
+class Buggy {
+private:
+    Motor *leftMotor;
+    Motor *rightMotor;
+    WheelEncoder *leftEncoder;
+    WheelEncoder *rightEncoder;
+    DigitalOut enable;
+
+public:
+    Buggy(Motor *L, Motor *R, WheelEncoder *LE, WheelEncoder *RE, PinName en) : leftMotor(L), rightMotor(R), leftEncoder(LE), rightEncoder(RE), enable(en) {}
+
+    void setEnable(bool enable_signal) {
+        enable.write(enable_signal);
+    }
+
+    bool getEnable() {
+        return enable.read();
+    }
+
+void moveDistance(float targetDistance_m, float max_speed){
+       
+        leftEncoder->reset();
+        rightEncoder->reset();
+
+        enable.write(1);
+
+        float Kp_sync = 5000.0f; //increase this value to make error adjustment more significant, decrease to make error adjustment less significant
+        float Kp_speed = 4000.0f; //increase this value to make it stop faster, decrease to make it stop slower
+
+        // Moving while loop
+        while (true)
+        {
+            float distL = leftEncoder->getDistance();
+            float distR = rightEncoder->getDistance();
+            float averageDistance = (distR + distL) * 0.5f;
+         
+            float distanceRemaining = targetDistance_m - averageDistance;
+            
+            if (distanceRemaining <= 0.0f)
+                break;
+
+            int currentBaseSpeed = (int)(Kp_speed * distanceRemaining);
+
+            if (currentBaseSpeed > max_speed) {
+                currentBaseSpeed = max_speed;
+            }
+
+            if (currentBaseSpeed < 150) {
+                currentBaseSpeed = 150;
+            }
+
+            float error = distL - distR;
+            int adjustment = (int)(Kp_sync * error);
+
+            int leftSpeed = currentBaseSpeed - adjustment;
+            int rightSpeed = currentBaseSpeed + adjustment;
+
+            leftMotor->move(leftSpeed);
+            rightMotor->move(rightSpeed);
+
+            wait(0.0004f);
+        }
+        enable.write(0);
+        leftMotor->move(0);
+        rightMotor->move(0);
+    }
+
+  void rotateAngle(float angle_deg, float speed){
+        const float PI = 3.14159265359f;
+        float angle_rad = angle_deg * PI/180.0f;
+        const float wheelBase = 0.17f; //adjust this value if turning is not turning desirably, approximately +-1 from 0.16
+
+        float targetDistance = (angle_rad * wheelBase) / 2.0f; //arclength
+
+        if (angle_deg < 0) {
+        targetDistance = targetDistance * 0.85f; //if it turns too far left, increase this value; and if it turns too less left, decrease this value
+        } //this section exists because the buggy acts up when turning left(negative angle values), probably because of hardware asymmetry somewhere
+ 
+        leftEncoder->reset();
+        rightEncoder->reset();
+
+        int dirL = (angle_deg > 0) ? 1 : -1;
+        int dirR = (angle_deg > 0) ? -1 : 1;
+
+        float Kp = 5000.0f; //increase this value to make error adjustment more significant, decrease to make error adjustment less significant
+
+        enable.write(1);
+
+        while(true)
+        {
+            float distL = fabs(leftEncoder->getDistance());
+            float distR = fabs(rightEncoder->getDistance());
+            float avgDist = (distL + distR) * 0.5f;
+
+            if (avgDist >= fabs(targetDistance))
+                break;
+
+            float error = distL - distR;
+            int adjustment = (int)(Kp * error);
+
+            int currentLeftSpeed = dirL * ((int)speed - adjustment);
+            int currentRightSpeed = dirR * ((int)speed + adjustment);
+
+            leftMotor->move(currentLeftSpeed);
+            rightMotor->move(currentRightSpeed);
+
+            wait(0.0004f);
+        }
+
+        enable.write(0);
+        leftMotor->move(0);
+        rightMotor->move(0);
+    }
+};
