@@ -29,7 +29,7 @@ private:
     DigitalOut *m_ledR;
     DigitalOut *m_ledG;
     DigitalOut *m_ledB;
-    Buggy *buggy;
+    DigitalOut *m_en;
 
     volatile bool m_toggleRequested;
     volatile bool m_LeftRequested;
@@ -94,7 +94,7 @@ public:
                  DigitalOut *r,
                  DigitalOut *g,
                  DigitalOut *b,
-                 Buggy *buggy)
+                DigitalOut *en)
         : m_lcd(lcd),
           m_motor_sig_L(motor_sig_L),
           m_motor_sig_R(motor_sig_R),
@@ -110,7 +110,8 @@ public:
           m_ledB(b),
           buggy(buggy),
           m_toggleRequested(false),
-          m_prevFocus(Status)
+          m_prevFocus(Status),
+            m_en(en)
     {
         m_selectedMotor = MOTOR_LEFT;
         m_activeMotor = m_motorL;
@@ -202,7 +203,7 @@ public:
         }
 
         // Edit mode
-        if (m_ui.state == Edit) {
+       // if (m_ui.state == Edit) {
 
             if (m_ui.focus == Duty)
                 m_activeMotor->duty_cycle = editValue;
@@ -216,5 +217,5 @@ public:
             if (m_ui.focus == Status)
                 buggy->setEnable(editValue >= 0.5f);
         }
-    }
+    //}
 };
