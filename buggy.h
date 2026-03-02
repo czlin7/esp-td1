@@ -10,9 +10,18 @@ private:
     Motor *rightMotor;
     WheelEncoder *leftEncoder;
     WheelEncoder *rightEncoder;
+    DigitalOut enable;
 
 public:
-    Buggy(Motor *L, Motor *R, WheelEncoder *LE, WheelEncoder *RE) : leftMotor(L), rightMotor(R), leftEncoder(LE), rightEncoder(RE) {}
+    Buggy(Motor *L, Motor *R, WheelEncoder *LE, WheelEncoder *RE, PinName en) : leftMotor(L), rightMotor(R), leftEncoder(LE), rightEncoder(RE), enable(en) {}
+
+    void setEnable(bool enable_signal) {
+        enable.write(enable_signal);
+    }
+
+    bool getEnable() {
+        return enable.read();
+    }
 
     void forward_backward(float moving_speed, float time_fb){
         leftMotor->move(moving_speed);
@@ -35,7 +44,10 @@ public:
         leftEncoder->reset();
         rightEncoder->reset();
 
+        //Set bipolarity and direction
+
         // Set the desired speed to move
+        enable.write(1);
         leftMotor->move(moving_speed);
         rightMotor->move(moving_speed);
 
@@ -44,22 +56,23 @@ public:
         {
             float distL = leftEncoder->getDistance();
             float distR = rightEncoder->getDistance();
-            float avgDist = (distL + distR) * 0.5f;
-
+            float avgDist = (distR + distL) * 0.5 ;
             if (avgDist > targetDistance_m)
             break;
 
-        wait(0.01f);
+        wait(0.0004f); //2500Hz Distance loop
         }
         // Stop motor after desired distance already travelled
+        enable.write(0);
         leftMotor->move(0);
         rightMotor->move(0);
+       
     }
 
     void rotateAngle(float angle_deg, float speed){
         const float PI = 3.14159265359f;
         float angle_rad = angle_deg * PI/180.0f;
-        const float wheelBase = 0.2; // Measure and enter the value
+        const float wheelBase = 0.16f; // Measure and enter the value
 
         // Distance targeted for the desired rotation? or turning?
         float targetDistance = (angle_rad * wheelBase) / 2.0f;
@@ -73,6 +86,7 @@ public:
         float rightSpeed = (angle_deg > 0) ? -speed : speed;
 
         // Actaute motor to turn at desired speed
+        enable.write(1);
         leftMotor->move(leftSpeed);
         rightMotor->move(rightSpeed);
 
@@ -82,14 +96,15 @@ public:
             float distL = fabs(leftEncoder->getDistance());
             float distR = fabs(rightEncoder->getDistance());
             float avgDist = (distL + distR) * 0.5f;
-
+            //printf("L %.3f R %.3f\n", distL, distR);
             if (avgDist >= fabs(targetDistance))
             break;
 
-        wait(0.01f);
+        wait(0.0004f);
         }
 
         // Stop motor once desired angle has reached
+        enable.write(0);
         leftMotor->move(0);
         rightMotor->move(0);
     }
