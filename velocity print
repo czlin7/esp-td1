@@ -1,0 +1,39 @@
+#include "C12832.h"
+#include "mbed.h"
+
+#include "potentiometer.h"
+#include "encoder.h"
+#include "motors.h"
+#include "vec2f.h"
+#include <cstdint>
+#include "ui.h"
+#include "buggy.h"
+#include "sensor.h"
+#include "states.h"
+
+Serial pc(USBTX, USBRX); // tx, rx
+
+int main(){
+    Sensor sensor1(A2);
+    Motor MotorR(PA_15,PC_2,PA_14);
+    Motor MotorL(PB_7,PC_3,PA_13); 
+
+    WheelEncoder leftEncoder (PC_10, PC_12, NC, 10.0f, 256);
+    WheelEncoder rightEncoder (PC_8, PC_6, NC, 10.0f , 256);
+
+    Buggy LBuggy(&MotorL, &MotorR, &leftEncoder, &rightEncoder, PC_4);
+
+    float velL = 0.0f;
+    float velR = 0.0f;
+
+    while(true){
+        LBuggy.moveDistance(2, 400);
+        
+        velL = leftEncoder.getVelocity();
+        velR = rightEncoder.getVelocity();
+        
+        pc.printf("Left Vel: %f m/s | Right Vel: %f m/s\r\n", velL, velR); 
+        
+        wait(2);
+    }
+}
