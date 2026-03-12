@@ -1,0 +1,46 @@
+#include "C12832.h"
+#include "mbed.h"
+
+#include "potentiometer.h"
+#include "encoder.h"
+#include "motors.h"
+#include "vec2f.h"
+#include <cstdint>
+#include "ui.h"
+#include "buggy.h"
+#include "sensor.h"
+#include "states.h"
+
+Serial pc(USBTX, USBRX); // tx, rx
+
+int main(){
+    Sensor sensors[6] = {
+        Sensor(A0), 
+        Sensor(A1), 
+        Sensor(A2), 
+        Sensor(A3), 
+        Sensor(A4), 
+        Sensor(A5)
+    };
+
+    Motor MotorR(PA_15,PC_2,PA_14);
+    Motor MotorL(PB_7,PC_3,PA_13); 
+
+    WheelEncoder leftEncoder(PC_10, PC_12, NC, 10.0f, 256);
+    WheelEncoder rightEncoder(PC_8, PC_6, NC, 10.0f, 256);
+
+    Buggy LBuggy(&MotorL, &MotorR, &leftEncoder, &rightEncoder, PC_4);
+
+    float voltages[6] = {0.0f};
+
+    while(true){
+
+        for(int i = 0; i < 6; i++) {
+            voltages[i] = sensors[i].get_voltage();
+        }
+ 
+        pc.printf("A0:%.2fV | A1:%.2fV | A2:%.2fV | A3:%.2fV | A4:%.2fV | A5:%.2fV\r\n", 
+                  voltages[0], voltages[1], voltages[2], voltages[3], voltages[4], voltages[5]); 
+        wait(2);
+    }
+}
