@@ -1,0 +1,86 @@
+#include "mbed.h"
+
+Serial bt(PA_11, PA_12);   // TX, RX
+
+PwmOut red(D5);
+PwmOut green(D9);
+PwmOut blue(D8);
+
+DigitalIn joystick(D4);   // joystick button
+
+AnalogIn potX(A0);
+AnalogIn potY(A1);
+
+Timer timer;
+
+void setColor(float r, float g, float b)
+{
+    red = r;
+    green = g;
+    blue = b;
+}
+
+int main()
+{
+    bt.baud(9600);   // consider 115200 for better performance
+
+    red.period_ms(1);
+    green.period_ms(1);
+    blue.period_ms(1);
+
+    joystick.mode(PullUp);
+
+    int lastState = 1;
+
+    timer.start();
+
+    while (1)
+    {
+        // ===== 1. RECEIVE (RGB control) =====
+        if (bt.readable())
+        {
+            char c = bt.getc();
+
+            if (c == 'G')
+                setColor(1.0,0,0);
+
+            else if (c == 'Y')
+                setColor(0,1.0,0);
+
+            else if (c == 'R')
+                setColor(0,0,1.0);
+            
+            else if (c == 'B')
+                setColor(0,1.0,1.0);
+
+            else if (c == 'W')
+                setColor(0,0,0);
+
+            else if (c == 'O')
+                setColor(1.0,1.0,1.0);
+        }
+
+        // ===== 2. BUTTON → BLE =====
+        int currentState = joystick.read();
+
+        if (lastState == 1 && currentState == 0)
+        {
+            bt.printf("BTN:1\r\n");
+        }
+
+        lastState = currentState;
+
+        // ===== 3. ANALOG STREAM @ 50 Hz =====
+        if (timer.read_ms() >= 20)   // 20 ms = 50 Hz
+        {
+            timer.reset();
+
+            int x = potX.read_u16();   // 0–65535
+            int y = potY.read_u16();
+
+            bt.printf("X:%d,Y:%d\r\n", x, y);
+        }
+
+        wait_ms(5); // small delay to stabilise loop
+    }
+}
