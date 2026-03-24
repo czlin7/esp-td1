@@ -5,7 +5,6 @@
 #include "motors.h"
 #include "potentiometer.h"
 #include "states.h"
-#include "buggy.h"
 
 // UI control states
 typedef struct {
@@ -108,7 +107,6 @@ public:
           m_ledR(r),
           m_ledG(g),
           m_ledB(b),
-          buggy(buggy),
           m_toggleRequested(false),
           m_prevFocus(Status),
             m_en(en)
@@ -172,7 +170,7 @@ public:
 
         m_lcd->locate(1, 1);
         m_lcd->printf("Status:%s",
-                      buggy->getEnable() ? "Enabled" : "Disabled");
+                      m_activeMotor->motor_enable ? "Enabled" : "Disabled");
 
         m_lcd->locate(1, 21);
         m_lcd->printf("Duty Cycle:%0.1f",
@@ -187,24 +185,23 @@ public:
                       m_activeMotor->motor_dir ? "Fw" : "Bw");
     }
 
+   // ui.h
     void handleNavigation() {
 
         float navValue  = m_potL->getCurrentSampleNorm();
         float editValue = m_potR->getCurrentSampleNorm();
 
-        // Navigation mode for menu
+        // Navigation mode
         if (m_ui.state == Navigation) {
-
             if      (navValue < 0.2f) m_ui.focus = Status;
             else if (navValue < 0.4f) m_ui.focus = Duty;
             else if (navValue < 0.6f) m_ui.focus = Speed;
             else if (navValue < 0.8f) m_ui.focus = Mode;
-            else                     m_ui.focus = Dir;
+            else                      m_ui.focus = Dir;
         }
 
-        // Edit mode
-       // if (m_ui.state == Edit) {
-
+        // Edit mode (Uncommented to prevent accidental overwriting!)
+        if (m_ui.state == Edit) {
             if (m_ui.focus == Duty)
                 m_activeMotor->duty_cycle = editValue;
 
@@ -215,7 +212,8 @@ public:
                 m_activeMotor->motor_bipolar = (editValue >= 0.5f);
 
             if (m_ui.focus == Status)
-                buggy->setEnable(editValue >= 0.5f);
+                m_activeMotor->motor_enable = (editValue >= 0.5f);
         }
+    }
     //}
 };

@@ -45,7 +45,7 @@ public:
 
         float tickRate = elapsedTick / elapsedTime; //ticks per second
         velocity = tickRate * functionVal; //meter per second
-        rpm = (tickRate / CPR) * 60.0f;
+        rpm = (tickRate / (CPR * gear)) * 60.0f;
 
         previousTick = currentTick; //save the final tick value at the termination of this function
         previousTime = currentTime; //save the final time value at the termination of this function

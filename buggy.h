@@ -23,87 +23,96 @@ public:
         return enable.read();
     }
 
-    void forward_backward(float moving_speed, float time_fb){
-        leftMotor->move(moving_speed);
-        rightMotor->move(moving_speed);
-        wait(time_fb);
-        leftMotor->move(0.0f);
-        rightMotor->move(0.0f); //stops the buggy after the wait finishes
-    }
-
-    void turn_left_right(float turning_speed, float time_lr){ //ensure that speed value is > 0 to turn right, and < 0 to turn left
-        leftMotor->move(turning_speed);
-        rightMotor->move(-turning_speed);
-        wait(time_lr);
-        leftMotor->move(0.0f);
-        rightMotor->move(0.0f); //stops the buggy after the wait finishes
-    }
-
-    void moveDistance(float targetDistance_m, float moving_speed){
-        // Reset encoders to measure counts for desired distance
+void moveDistance(float targetDistance_m, float max_speed){
+       
         leftEncoder->reset();
         rightEncoder->reset();
 
-        //Set bipolarity and direction
-
-        // Set the desired speed to move
         enable.write(1);
-        leftMotor->move(moving_speed);
-        rightMotor->move(moving_speed);
 
-        // // Moving while loop while measuring count/distance using encoder
+        float Kp_sync = 5000.0f; //increase this value to make error adjustment more significant, decrease to make error adjustment less significant
+        float Kp_speed = 4000.0f; //increase this value to make it stop faster, decrease to make it stop slower
+
+        // Moving while loop
         while (true)
         {
             float distL = leftEncoder->getDistance();
             float distR = rightEncoder->getDistance();
-            float avgDist = (distR + distL) * 0.5 ;
-            if (avgDist > targetDistance_m)
-            break;
+            float averageDistance = (distR + distL) * 0.5f;
+         
+            float distanceRemaining = targetDistance_m - averageDistance;
+            
+            if (distanceRemaining <= 0.0f)
+                break;
 
-        wait(0.0004f); //2500Hz Distance loop
+            int currentBaseSpeed = (int)(Kp_speed * distanceRemaining);
+
+            if (currentBaseSpeed > max_speed) {
+                currentBaseSpeed = max_speed;
+            }
+
+            if (currentBaseSpeed < 150) {
+                currentBaseSpeed = 150;
+            }
+
+            float error = distL - distR;
+            int adjustment = (int)(Kp_sync * error);
+
+            int leftSpeed = currentBaseSpeed - adjustment;
+            int rightSpeed = currentBaseSpeed + adjustment;
+
+            leftMotor->move(leftSpeed);
+            rightMotor->move(rightSpeed);
+
+            wait(0.0004f);
         }
-        // Stop motor after desired distance already travelled
         enable.write(0);
         leftMotor->move(0);
         rightMotor->move(0);
-       
     }
 
-    void rotateAngle(float angle_deg, float speed){
+  void rotateAngle(float angle_deg, float speed){
         const float PI = 3.14159265359f;
         float angle_rad = angle_deg * PI/180.0f;
-        const float wheelBase = 0.16f; // Measure and enter the value
+        const float wheelBase = 0.17f; //adjust this value if turning is not turning desirably, approximately +-1 from 0.16
 
-        // Distance targeted for the desired rotation? or turning?
-        float targetDistance = (angle_rad * wheelBase) / 2.0f;
+        float targetDistance = (angle_rad * wheelBase) / 2.0f; //arclength
 
-        // Reset encoders to measure counts for turning desired degree
+        if (angle_deg < 0) {
+        targetDistance = targetDistance * 0.90f; //if it turns too far left, increase this value; and if it turns too less left, decrease this value
+        } //this section exists because the buggy acts up when turning left(negative angle values), probably because of hardware asymmetry somewhere
+ 
         leftEncoder->reset();
         rightEncoder->reset();
 
-        // Determine direction of turning
-        float leftSpeed = (angle_deg > 0) ? speed : -speed;
-        float rightSpeed = (angle_deg > 0) ? -speed : speed;
+        int dirL = (angle_deg > 0) ? 1 : -1;
+        int dirR = (angle_deg > 0) ? -1 : 1;
 
-        // Actaute motor to turn at desired speed
+        float Kp = 5000.0f; //increase this value to make error adjustment more significant, decrease to make error adjustment less significant
+
         enable.write(1);
-        leftMotor->move(leftSpeed);
-        rightMotor->move(rightSpeed);
 
-        // Turning while loop while measuring count/degree of turning using encoder
         while(true)
         {
             float distL = fabs(leftEncoder->getDistance());
             float distR = fabs(rightEncoder->getDistance());
             float avgDist = (distL + distR) * 0.5f;
-            //printf("L %.3f R %.3f\n", distL, distR);
-            if (avgDist >= fabs(targetDistance))
-            break;
 
-        wait(0.0004f);
+            if (avgDist >= fabs(targetDistance))
+                break;
+
+            float error = distL - distR;
+            int adjustment = (int)(Kp * error);
+
+            int currentLeftSpeed = dirL * ((int)speed - adjustment);
+            int currentRightSpeed = dirR * ((int)speed + adjustment);
+
+            leftMotor->move(currentLeftSpeed);
+            rightMotor->move(currentRightSpeed);
+
+            wait(0.0004f);
         }
 
-        // Stop motor once desired angle has reached
         enable.write(0);
         leftMotor->move(0);
         rightMotor->move(0);
