@@ -1,26 +1,37 @@
 #pragma once
 
-// FSM program states
+/**
+ * @file states.h
+ * @brief Enumerations describing firmware runtime and user-interface state.
+ */
+
+/**
+ * @brief High-level program states used by the firmware state machine.
+ */
 enum ProgramState {
-    Init, 
-    Forward,
-    Backward,
-    Standby,
-    Debug,
-    None
-}; // enum ProgramState
+    Init,     /**< System initialization state. */
+    Forward,  /**< Forward motion state. */
+    Backward, /**< Reverse motion state. */
+    Standby,  /**< Idle state with outputs held. */
+    Debug,    /**< Diagnostic or debug state. */
+    None      /**< Unspecified state placeholder. */
+};
 
-// UI states
+/**
+ * @brief User-interface operating modes.
+ */
 enum UiState {
-    Navigation,
-    Edit
-}; // enum UI states
+    Navigation, /**< Focus selection mode. */
+    Edit        /**< Field editing mode. */
+};
 
-// UI control states
+/**
+ * @brief Selectable fields in the on-device user interface.
+ */
 enum UiFocus {
-    Status,
-    Duty,
-    Speed,
-    Mode,
-    Dir,
+    Status, /**< Motor enable field. */
+    Duty,   /**< Duty cycle field. */
+    Speed,  /**< Speed field. */
+    Mode,   /**< Driver mode field. */
+    Dir     /**< Direction field. */
 };

@@ -1,0 +1,38 @@
+PROJECT_NAME    = "ESP Buggy Programme"
+PROJECT_NUMBER  = "2.0.0"
+
+OUTPUT_DIRECTORY       = docs_build
+
+INPUT                  = .
+RECURSIVE              = YES
+
+EXCLUDE                = docs_build \
+                         .git \
+                         build \
+                         .pio \
+                         .vscode \
+                         cmake-build-debug \
+                         cmake-build-release \
+                         out \
+                         control.h
+
+FILE_PATTERNS          = *.h \
+                         *.hh \
+                         *.hpp \
+                         *.hxx \
+                         *.c \
+                         *.cc \
+                         *.cpp \
+                         *.cxx
+
+USE_MDFILE_AS_MAINPAGE =
+MARKDOWN_SUPPORT       = NO
+
+EXTRACT_ALL            = YES
+
+GENERATE_HTML          = NO
+GENERATE_LATEX         = YES
+USE_PDFLATEX           = YES
+PDF_HYPERLINKS         = YES
+
+HAVE_DOT               = NO
