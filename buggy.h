@@ -1,9 +1,16 @@
 #pragma once
 
-#include "motors.h"
 #include "encoder.h"
+#include "motors.h"
 
+/**
+ * @file buggy.h
+ * @brief Differential-drive buggy motion primitives.
+ */
 
+/**
+ * @brief Coordinates two motors and two encoders for basic maneuvers.
+ */
 class Buggy {
 private:
     Motor *leftMotor;
@@ -13,99 +20,120 @@ private:
     DigitalOut enable;
 
 public:
-    Buggy(Motor *L, Motor *R, WheelEncoder *LE, WheelEncoder *RE, PinName en) : leftMotor(L), rightMotor(R), leftEncoder(LE), rightEncoder(RE), enable(en) {}
+    /**
+     * @brief Constructs a buggy controller.
+     * @param L Left motor instance.
+     * @param R Right motor instance.
+     * @param LE Left wheel encoder instance.
+     * @param RE Right wheel encoder instance.
+     * @param en Motor driver enable pin.
+     */
+    Buggy(Motor *L, Motor *R, WheelEncoder *LE, WheelEncoder *RE, PinName en)
+        : leftMotor(L), rightMotor(R), leftEncoder(LE), rightEncoder(RE), enable(en) {}
 
-    void setEnable(bool enable_signal) {
-        enable.write(enable_signal);
-    }
+    /**
+     * @brief Sets motor driver enable output.
+     * @param enable_signal Output level for the enable pin.
+     */
+    void setEnable(bool enable_signal) { enable.write(enable_signal); }
 
-    bool getEnable() {
-        return enable.read();
-    }
+    /**
+     * @brief Returns the current enable output state.
+     * @return True when enable output is asserted.
+     */
+    bool getEnable() { return enable.read(); }
 
-void moveDistance(float targetDistance_m, float max_speed){
-       
+    /**
+     * @brief Drives forward until the average encoder distance reaches a target.
+     * @param targetDistance_m Target distance in meters.
+     * @param max_speed Maximum speed command magnitude.
+     */
+    void moveDistance(float targetDistance_m, float max_speed) {
         leftEncoder->reset();
         rightEncoder->reset();
 
         enable.write(1);
 
-        float Kp_sync = 5000.0f; //increase this value to make error adjustment more significant, decrease to make error adjustment less significant
-        float Kp_speed = 4000.0f; //increase this value to make it stop faster, decrease to make it stop slower
+        const float Kp_sync = 5000.0f;
+        const float Kp_speed = 4000.0f;
 
-        // Moving while loop
-        while (true)
-        {
-            float distL = leftEncoder->getDistance();
-            float distR = rightEncoder->getDistance();
-            float averageDistance = (distR + distL) * 0.5f;
-         
-            float distanceRemaining = targetDistance_m - averageDistance;
-            
-            if (distanceRemaining <= 0.0f)
+        while (true) {
+            const float distL = leftEncoder->getDistance();
+            const float distR = rightEncoder->getDistance();
+            const float averageDistance = (distR + distL) * 0.5f;
+            const float distanceRemaining = targetDistance_m - averageDistance;
+
+            if (distanceRemaining <= 0.0f) {
                 break;
+            }
 
-            int currentBaseSpeed = (int)(Kp_speed * distanceRemaining);
+            int currentBaseSpeed = static_cast<int>(Kp_speed * distanceRemaining);
 
             if (currentBaseSpeed > max_speed) {
-                currentBaseSpeed = max_speed;
+                currentBaseSpeed = static_cast<int>(max_speed);
             }
 
             if (currentBaseSpeed < 150) {
                 currentBaseSpeed = 150;
             }
 
-            float error = distL - distR;
-            int adjustment = (int)(Kp_sync * error);
+            const float error = distL - distR;
+            const int adjustment = static_cast<int>(Kp_sync * error);
 
-            int leftSpeed = currentBaseSpeed - adjustment;
-            int rightSpeed = currentBaseSpeed + adjustment;
+            const int leftSpeed = currentBaseSpeed - adjustment;
+            const int rightSpeed = currentBaseSpeed + adjustment;
 
             leftMotor->move(leftSpeed);
             rightMotor->move(rightSpeed);
 
             wait(0.0004f);
         }
+
         enable.write(0);
         leftMotor->move(0);
         rightMotor->move(0);
     }
 
-  void rotateAngle(float angle_deg, float speed){
+    /**
+     * @brief Rotates the buggy by commanding opposite wheel motion.
+     * @param angle_deg Desired turn angle in degrees.
+     * @param speed Speed command magnitude.
+     */
+    void rotateAngle(float angle_deg, float speed) {
         const float PI = 3.14159265359f;
-        float angle_rad = angle_deg * PI/180.0f;
-        const float wheelBase = 0.17f; //adjust this value if turning is not turning desirably, approximately +-1 from 0.16
+        const float angle_rad = angle_deg * PI / 180.0f;
+        const float wheelBase = 0.17f;
 
-        float targetDistance = (angle_rad * wheelBase) / 2.0f; //arclength
+        float targetDistance = (angle_rad * wheelBase) / 2.0f;
 
         if (angle_deg < 0) {
-        targetDistance = targetDistance * 0.90f; //if it turns too far left, increase this value; and if it turns too less left, decrease this value
-        } //this section exists because the buggy acts up when turning left(negative angle values), probably because of hardware asymmetry somewhere
- 
+            targetDistance = targetDistance * 0.90f;
+        }
+
         leftEncoder->reset();
         rightEncoder->reset();
 
-        int dirL = (angle_deg > 0) ? 1 : -1;
-        int dirR = (angle_deg > 0) ? -1 : 1;
+        const int dirL = (angle_deg > 0) ? 1 : -1;
+        const int dirR = (angle_deg > 0) ? -1 : 1;
 
-        float Kp = 5000.0f; //increase this value to make error adjustment more significant, decrease to make error adjustment less significant
+        const float Kp = 5000.0f;
 
         enable.write(1);
 
-        while(true)
-        {
-            float distL = fabs(leftEncoder->getDistance());
-            float distR = fabs(rightEncoder->getDistance());
-            float avgDist = (distL + distR) * 0.5f;
+        while (true) {
+            const float distL = fabs(leftEncoder->getDistance());
+            const float distR = fabs(rightEncoder->getDistance());
+            const float avgDist = (distL + distR) * 0.5f;
 
-            if (avgDist >= fabs(targetDistance))
+            if (avgDist >= fabs(targetDistance)) {
                 break;
+            }
 
-            float error = distL - distR;
-            int adjustment = (int)(Kp * error);
+            const float error = distL - distR;
+            const int adjustment = static_cast<int>(Kp * error);
 
-            int currentLeftSpeed = dirL * ((int)speed - adjustment);
-            int currentRightSpeed = dirR * ((int)speed + adjustment);
+            const int currentLeftSpeed = dirL * (static_cast<int>(speed) - adjustment);
+            const int currentRightSpeed = dirR * (static_cast<int>(speed) + adjustment);
 
             leftMotor->move(currentLeftSpeed);
             rightMotor->move(currentRightSpeed);
