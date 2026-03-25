@@ -6,3 +6,7 @@ compile_commands.json
 mbed
 C12832
 QEI
+
+# Doxygen output
+docs_build/
+texput.log
