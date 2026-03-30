@@ -1,0 +1,100 @@
+#include "C12832.h"
+#include "mbed.h"
+
+#include "potentiometer.h"
+#include "encoder.h"
+#include "motors.h"
+#include "vec2f.h"
+#include <cstdint>
+
+#include "buggy.h"
+#include "sensor.h"
+#include "states.h"
+
+Serial bt(PA_11, PA_12); // TX, RX (HM-10)
+Timer timer;
+
+// ===== RGB =====
+PwmOut red(D5);
+PwmOut green(D9);
+PwmOut blue(D8);
+
+void setColor(float r, float g, float b)
+{
+    red = r;
+    green = g;
+    blue = b;
+}
+
+int main()
+{
+    bt.baud(9600);
+
+    // ===== RGB setup =====
+    red.period_ms(1);
+    green.period_ms(1);
+    blue.period_ms(1);
+
+    Sensor sensors[6] = {
+        Sensor(A0), 
+        Sensor(A1), 
+        Sensor(A2), 
+        Sensor(A3), 
+        Sensor(A4), 
+        Sensor(A5)
+    };
+
+    Motor MotorR(PA_15, PC_2, PA_14);
+    Motor MotorL(PB_7, PC_3, PA_13); 
+
+    WheelEncoder leftEncoder(PC_10, PC_12, NC, 10.0f, 256);
+    WheelEncoder rightEncoder(PC_8, PC_6, NC, 10.0f, 256);
+
+    Buggy LBuggy(&MotorL, &MotorR, &leftEncoder, &rightEncoder, PC_4);
+
+    float voltages[6] = {0.0f};
+
+    timer.start();
+
+    while (true)
+    {
+        // ===== 1. RECEIVE (RGB control from phone) =====
+        if (bt.readable())
+        {
+            char c = bt.getc();
+
+            if (c == 'G')
+                setColor(1.0,0,0);
+
+            else if (c == 'Y')
+                setColor(0,1.0,0);
+
+            else if (c == 'R')
+                setColor(0,0,1.0);
+            
+            else if (c == 'B')
+                setColor(0,1.0,1.0);
+
+            else if (c == 'W')
+                setColor(0,0,0);
+
+            else if (c == 'O')
+                setColor(1.0,1.0,1.0);
+        }
+
+        // ===== 2. SENSOR STREAM @ 50 Hz =====
+        if (timer.read_ms() >= 200)
+        {
+            timer.reset();
+
+            for (int i = 0; i < 6; i++)
+            {
+                voltages[i] = sensors[i].get_voltage();
+            }
+
+            bt.printf("A0:%.2f,A1:%.2f,A2:%.2f,A3:%.2f,A4:%.2f,A5:%.2f\r\n",
+                      voltages[0], voltages[1], voltages[2],
+                      voltages[3], voltages[4], voltages[5]);
+        }
+    }
+}

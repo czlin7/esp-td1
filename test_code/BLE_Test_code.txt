@@ -1,0 +1,49 @@
+#include "mbed.h"
+
+Serial bt(PA_9, PA_10);   // TX, RX
+
+PwmOut red(D5);
+PwmOut green(D6);
+PwmOut blue(D9);
+
+void setColor(float r, float g, float b)
+{
+    red = r;
+    green = g;
+    blue = b;
+}
+
+int main()
+{
+    bt.baud(9600);
+
+    red.period_ms(1);
+    green.period_ms(1);
+    blue.period_ms(1);
+
+    while (1)
+    {
+        if (bt.readable())
+        {
+            char c = bt.getc();
+
+            if (c == 'G')
+                setColor(1.0,0,0);
+
+            else if (c == 'Y')
+                setColor(0,1.0,0);
+
+            else if (c == 'R')
+                setColor(0,0,1.0);
+            
+            else if (c == 'B')
+            setColor(0,1.0,1.0);
+
+            else if (c == 'W')
+                setColor(0,0,0);
+
+            else if (c == 'O')
+                setColor(1.0,1.0,1.0);
+        }
+    }
+}
