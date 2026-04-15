@@ -1,10 +1,11 @@
-#include "C12832.h"
 #include "mbed.h"
 #include "sensor.h"
 #include "motors.h"
 #include "encoder.h"
 #include "buggy.h"
 #include "PID.h"
+
+Serial pc(USBTX, USBRX); // tx, rx
 
 PwmOut red(D5);
 PwmOut green(D6);
@@ -25,7 +26,7 @@ DigitalOut myPin_PA2(PA_2);
 DigitalOut myPin_PA10(PA_10);
 
 // Sensors
-SensorArray sensorPCB(A5,A4,A3,A2,A1,A0,PA_3,PD_2,PC_11,PC_9,PB_8,PA_5,PA_6);
+SensorArray sensorPCB(A5,A4,A3,A2,A1,A0,PB_2,PD_2,PH_1,PH_0,PC_15,PC_14,PC_11);
 
 // Motors
 Motor rightMotor(PA_15,PC_2,PA_14);
@@ -54,75 +55,31 @@ float targetLeft  = 0.0f;
 float targetRight = 0.0f;
 
 int main() {
-    //Bluetooth initialization
+    // 1. Initialize Bluetooth
     bt.baud(9600);
 
+    // 2. FORCE MOTORS OFF (Safety first!)
+    myPin_PA2 = 0;
+    myPin_PA10 = 0;
     buggy.setEnable(0);
 
-    // Initialization, runs once
-    float position = sensorPCB.getPosition();
-    float correction = linePID.compute(position, LINE_DT);
-
-    targetLeft  = baseSpeed + correction;
-    targetRight = baseSpeed - correction;
-
-    float lineTimer = 0.0f;
-
     while (true) {
-        if (bt.readable()) {
-            char c = bt.getc();
+        // 3. Read the calculated line position
+        float pos = sensorPCB.getPosition();
 
-            if (c == 'G')
-                buggy.rotateAngle(180,500);
+        // 4. Print the exact math value to your Bluetooth terminal
+        bt.printf("Line Position: %.2f\r\n", pos);
 
-            else if (c == 'Y')
-                setColor(0,1.0,0);
-
-            else if (c == 'R')
-                setColor(0,0,1.0);
-            
-            else if (c == 'S')
-                buggy.stop();
-
-            else if (c == 'W')
-                setColor(0,0,0);
-
-            else if (c == 'O')
-                setColor(1.0,1.0,1.0);
-
+        // 5. Visual Feedback using the RGB LED
+        if (pos > 0.5f) {
+            setColor(1.0f, 0.0f, 0.0f); // RED: Line is to the right
+        } else if (pos < -0.5f) {
+            setColor(0.0f, 0.0f, 1.0f); // BLUE: Line is to the left
+        } else {
+            setColor(0.0f, 1.0f, 0.0f); // GREEN: Line is centered!
         }
 
-        // Inner control loop (1 kHz)
-        wait_us(1000);  // enforce 1 kHz
-        float dt_speed = SPEED_DT;
-
-        // Measure actual speed
-        float actualLeft  = leftEncoder.getVelocity();
-        float actualRight = rightEncoder.getVelocity();
-
-        // Speed error
-        float errorLeft  = targetLeft - actualLeft;
-        float errorRight = targetRight - actualRight;
-
-        // Speed PID → PWM
-        float leftCmd  = leftSpeedPID.compute(errorLeft, dt_speed);
-        float rightCmd = rightSpeedPID.compute(errorRight, dt_speed);
-
-        // Drive motors
-        buggy.drive((int)leftCmd, (int)rightCmd);
-
-        // Outer control loop (100 Hz)
-        lineTimer += dt_speed;
-
-        if (lineTimer >= LINE_DT) {
-            lineTimer = 0.0f;
-
-            float position = sensorPCB.getPosition();
-
-            float correction = linePID.compute(position, LINE_DT);
-
-            targetLeft  = baseSpeed + correction;
-            targetRight = baseSpeed - correction;
-        }
+        // 6. Wait 100ms so we don't spam the terminal too fast
+        wait_us(100000); 
     }
 }
