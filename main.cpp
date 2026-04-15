@@ -1,76 +1,128 @@
 #include "C12832.h"
 #include "mbed.h"
-
-#include "potentiometer.h"
-#include "encoder.h"
+#include "sensor.h"
 #include "motors.h"
-#include "vec2f.h"
-#include <cstdint>
-#include "ui.h"
+#include "encoder.h"
 #include "buggy.h"
+#include "PID.h"
 
-#include "states.h"
+PwmOut red(D5);
+PwmOut green(D6);
+PwmOut blue(D9);
 
-// LCD instance
-C12832 lcd(D11, D13, D12, D7, D10);
+void setColor(float r, float g, float b)
+{
+    red = r;
+    green = g;
+    blue = b;
+}
 
-// Button and LED instance
-InterruptIn button(D4);
-InterruptIn Lbutton(A4);
-InterruptIn Rbutton(A5);
-DigitalOut R(D5);
-DigitalOut G(D9);
-DigitalOut B(D8);
+// Bluetooth
+Serial bt(PA_11, PA_12);   // TX, RX
 
-// Buggy instance
+// Fixed: Assigned variable names to the DigitalOut pins
+DigitalOut myPin_PA2(PA_2);
+DigitalOut myPin_PA10(PA_10);
+
+// Sensors
+SensorArray sensorPCB(A5,A4,A3,A2,A1,A0,PA_3,PD_2,PC_11,PC_9,PB_8,PA_5,PA_6);
+
 // Motors
-Motor leftMotor(PB_13,PC_2,PH_1); //2
-Motor rightMotor(PB_14,PC_3,PH_0); //1
+Motor rightMotor(PA_15,PC_2,PA_14);
+Motor leftMotor(PB_7,PC_3,PA_13);
+
 // Encoders
-WheelEncoder leftEncoder (PC_10, PC_12, NC, 0.0766, 15, 256);
-WheelEncoder rightEncoder (PC_8, PC_6, NC, 0.0766, 15, 256);
-// Buggy Object
-Buggy buggy(&leftMotor, &rightMotor, &leftEncoder, &rightEncoder);
-DigitalOut en(PC_4);
+WheelEncoder leftEncoder (PC_10, PC_12, NC, 10.0f, 256);
+WheelEncoder rightEncoder (PC_8, PC_6, NC, 10.0f , 256);
 
-// MAIN CODE
+// Buggy
+Buggy buggy(&leftMotor, &rightMotor, &leftEncoder, &rightEncoder, PC_4);
+
+// PID
+PID linePID(1.0f, 0.0f, 0.1f, -0.3f, 0.3f);
+PID leftSpeedPID(2.0f, 0.0f, 0.1f, -1000.0f, 1000.0f);
+PID rightSpeedPID(2.0f, 0.0f, 0.1f, -1000.0f, 1000.0f);
+
+// Parameters
+float baseSpeed = 0.5f; // m/s
+
+const float LINE_DT  = 0.01f;   // 100 Hz
+const float SPEED_DT = 0.001f;  // 1 kHz
+
+// Targets (IMPORTANT: persistent)
+float targetLeft  = 0.0f;
+float targetRight = 0.0f;
+
 int main() {
-// SETUP
-  // Hardware confuguration before the loop
-  button.mode(PullDown);
-  Lbutton.mode(PullDown);
-  Rbutton.mode(PullDown);
-  SamplingPotentiometer leftPot(A0, 3.3f, 200.0f);    // potentiometer sampling freq chosen: 200 Hz
-  SamplingPotentiometer rightPot(A1, 3.3f, 200.0f);
-  MotorData leftMotorData;
-  MotorData rightMotorData;                          // Motor Signal Struct Initialize
-  UIController ui(&lcd, &leftMotorData, &rightMotorData, &leftPot, &rightPot, &button, &Lbutton, &Rbutton, &R, &G, &B, &en);
+    //Bluetooth initialization
+    bt.baud(9600);
 
-  const float ui_period_s = 0.10f; // 10 Hz UI refresh
+    buggy.setEnable(0);
 
-  // Main while loop
+    // Initialization, runs once
+    float position = sensorPCB.getPosition();
+    float correction = linePID.compute(position, LINE_DT);
 
-       while (1) {
-        // Calculate -1.0 to 1.0 speed based on UI data
-        float leftSpeed = leftMotorData.duty_cycle * (leftMotorData.motor_dir ? 1.0f : -1.0f);
-        float rightSpeed = rightMotorData.duty_cycle * (rightMotorData.motor_dir ? 1.0f : -1.0f);
+    targetLeft  = baseSpeed + correction;
+    targetRight = baseSpeed - correction;
 
-        // Editing Values of Left Motor
-        en.write(leftMotorData.motor_enable || rightMotorData.motor_enable);
-        leftMotor.setMode(leftMotorData.motor_bipolar);
-        leftMotor.move(leftSpeed); // Use move() instead of setDuty()!
+    float lineTimer = 0.0f;
 
-        // Editing Values of Right Motor
-        rightMotor.setMode(rightMotorData.motor_bipolar);
-        rightMotor.move(rightSpeed); // Use move() instead of setDuty()!
+    while (true) {
+        if (bt.readable()) {
+            char c = bt.getc();
 
-        // UI rendering
-        ui.processMotorSelection();
-        ui.handleNavigation();
-        ui.processButton();
-        ui.renderDisplay();
-        
-        wait(ui_period_s); 
-  }
+            if (c == 'G')
+                buggy.rotateAngle(180,500);
 
+            else if (c == 'Y')
+                setColor(0,1.0,0);
+
+            else if (c == 'R')
+                setColor(0,0,1.0);
+            
+            else if (c == 'S')
+                buggy.stop();
+
+            else if (c == 'W')
+                setColor(0,0,0);
+
+            else if (c == 'O')
+                setColor(1.0,1.0,1.0);
+
+        }
+
+        // Inner control loop (1 kHz)
+        wait_us(1000);  // enforce 1 kHz
+        float dt_speed = SPEED_DT;
+
+        // Measure actual speed
+        float actualLeft  = leftEncoder.getVelocity();
+        float actualRight = rightEncoder.getVelocity();
+
+        // Speed error
+        float errorLeft  = targetLeft - actualLeft;
+        float errorRight = targetRight - actualRight;
+
+        // Speed PID → PWM
+        float leftCmd  = leftSpeedPID.compute(errorLeft, dt_speed);
+        float rightCmd = rightSpeedPID.compute(errorRight, dt_speed);
+
+        // Drive motors
+        buggy.drive((int)leftCmd, (int)rightCmd);
+
+        // Outer control loop (100 Hz)
+        lineTimer += dt_speed;
+
+        if (lineTimer >= LINE_DT) {
+            lineTimer = 0.0f;
+
+            float position = sensorPCB.getPosition();
+
+            float correction = linePID.compute(position, LINE_DT);
+
+            targetLeft  = baseSpeed + correction;
+            targetRight = baseSpeed - correction;
+        }
+    }
 }
