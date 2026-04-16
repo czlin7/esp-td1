@@ -41,7 +41,7 @@ Buggy buggy(&leftMotor, &rightMotor, &leftEncoder, &rightEncoder, PC_4);
 // PID
 // 1. Lowered line Kp to a sane starting point
 // 2. Widened the line output limits to +/- 0.8f so the buggy is allowed to turn sharply
-PID linePID(1.0f, 0.0f, 0.1f, -0.8f, 0.8f);
+PID linePID(0.45f, 0.0f, 0.04f, -0.55f, 0.55);
 
 // 3. Massively increased speed Kp from 2.0f to 2000.0f. 
 // Now, a small speed error of 0.1 m/s will output a motor command of 200 (out of 1000)
@@ -49,7 +49,7 @@ PID leftSpeedPID(2000.0f, 0.0f, 0.1f, -1000.0f, 1000.0f);
 PID rightSpeedPID(2000.0f, 0.0f, 0.1f, -1000.0f, 1000.0f);
 
 // Parameters
-float baseSpeed = 0.5f; // m/s
+float baseSpeed = 0.6f; // m/s
 
 const float LINE_DT  = 0.01f;   // 100 Hz
 const float SPEED_DT = 0.001f;  // 1 kHz
