@@ -26,8 +26,7 @@ DigitalOut myPin_PA2(PA_2);
 DigitalOut myPin_PA10(PA_10);
 
 // Sensors
-SensorArray sensorPCB(A5,A4,A3,A2,A1,A0,PA_3,PB_2,PH_1,PH_0,PC_15,PC_14,PB_2);
-
+SensorArray sensorPCB(PB_0,PC_0,PA_4,PA_0,PA_1,PC_1);
 // Motors
 Motor rightMotor(PA_15,PC_2,PA_14);
 Motor leftMotor(PB_7,PC_3,PA_13);
@@ -40,9 +39,14 @@ WheelEncoder rightEncoder (PC_8, PC_6, NC, 10.0f , 256);
 Buggy buggy(&leftMotor, &rightMotor, &leftEncoder, &rightEncoder, PC_4);
 
 // PID
-PID linePID(1.0f, 0.0f, 0.1f, -0.3f, 0.3f);
-PID leftSpeedPID(2.0f, 0.0f, 0.1f, -1000.0f, 1000.0f);
-PID rightSpeedPID(2.0f, 0.0f, 0.1f, -1000.0f, 1000.0f);
+// 1. Lowered line Kp to a sane starting point
+// 2. Widened the line output limits to +/- 0.8f so the buggy is allowed to turn sharply
+PID linePID(1.0f, 0.0f, 0.1f, -0.8f, 0.8f);
+
+// 3. Massively increased speed Kp from 2.0f to 2000.0f. 
+// Now, a small speed error of 0.1 m/s will output a motor command of 200 (out of 1000)
+PID leftSpeedPID(2000.0f, 0.0f, 0.1f, -1000.0f, 1000.0f);
+PID rightSpeedPID(2000.0f, 0.0f, 0.1f, -1000.0f, 1000.0f);
 
 // Parameters
 float baseSpeed = 0.5f; // m/s
@@ -113,10 +117,12 @@ int main() {
         float errorRight = targetRight - actualRight;
 
         // Speed PID → PWM
+        // Speed PID → PWM
         float leftCmd  = leftSpeedPID.compute(errorLeft, dt_speed);
         float rightCmd = rightSpeedPID.compute(errorRight, dt_speed);
 
-        // Drive motors
+        // Drive motors: The floats are now large enough (e.g., 500.5) 
+        // that casting them to an int (500) works perfectly.
         buggy.drive((int)leftCmd, (int)rightCmd);
 
         // Outer control loop (100 Hz)
