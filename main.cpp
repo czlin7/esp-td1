@@ -1,141 +1,192 @@
 #include "mbed.h"
+#include <cstdio>
+#include <cstring>
+
 #include "sensor.h"
 #include "motors.h"
 #include "encoder.h"
 #include "buggy.h"
 #include "PID.h"
 
-Serial pc(USBTX, USBRX); // tx, rx
+// UART to BLE module (e.g. HM-10): single-character commands from the phone app.
+Serial bt(PA_11, PA_12);
 
-PwmOut red(D5);
-PwmOut green(D6);
-PwmOut blue(D9);
+SensorArray sensorPCB(PC_0, PB_0, PC_1, PA_4, PA_0, PA_1);
 
-void setColor(float r, float g, float b)
-{
-    red = r;
-    green = g;
-    blue = b;
-}
+Motor rightMotor(PA_15, PC_2, PA_14);
+Motor leftMotor(PB_7, PC_3, PA_13);
 
-// Bluetooth
-Serial bt(PA_11, PA_12);   // TX, RX
+WheelEncoder leftEncoder(PC_10, PC_12, NC, 10.0f, 256);
+WheelEncoder rightEncoder(PC_8, PC_6, NC, 10.0f, 256);
 
-// Fixed: Assigned variable names to the DigitalOut pins
-DigitalOut myPin_PA2(PA_2);
-DigitalOut myPin_PA10(PA_10);
-
-// Sensors
-SensorArray sensorPCB(PB_0,PC_0,PA_4,PA_0,PA_1,PC_1);
-// Motors
-Motor rightMotor(PA_15,PC_2,PA_14);
-Motor leftMotor(PB_7,PC_3,PA_13);
-
-// Encoders
-WheelEncoder leftEncoder (PC_10, PC_12, NC, 10.0f, 256);
-WheelEncoder rightEncoder (PC_8, PC_6, NC, 10.0f , 256);
-
-// Buggy
 Buggy buggy(&leftMotor, &rightMotor, &leftEncoder, &rightEncoder, PC_4);
 
-// PID
-// 1. Lowered line Kp to a sane starting point
-// 2. Widened the line output limits to +/- 0.8f so the buggy is allowed to turn sharply
-PID linePID(0.45f, 0.0f, 0.04f, -0.55f, 0.55);
-
-// 3. Massively increased speed Kp from 2.0f to 2000.0f. 
-// Now, a small speed error of 0.1 m/s will output a motor command of 200 (out of 1000)
+PID linePID(0.35f, 0.0f, 0.04f, -0.4f, 0.4f);
 PID leftSpeedPID(2000.0f, 0.0f, 0.1f, -1000.0f, 1000.0f);
 PID rightSpeedPID(2000.0f, 0.0f, 0.1f, -1000.0f, 1000.0f);
 
-// Parameters
-float baseSpeed = 0.6f; // m/s
+float baseSpeed = 0.5f;
 
-const float LINE_DT  = 0.01f;   // 100 Hz
-const float SPEED_DT = 0.001f;  // 1 kHz
+const float LINE_DT = 0.01f;
+const float SPEED_DT = 0.001f;
 
-// Targets (IMPORTANT: persistent)
-float targetLeft  = 0.0f;
+float targetLeft = 0.0f;
 float targetRight = 0.0f;
 
-float save1 = 0;
-float save2 = 0;
-float save3 = 0;
-float save4 = 0;
-float save5 = 0;
-float save6 = 0;
+/** When true, line follower updates targets and speed PIDs drive the wheels. */
+static bool line_follow_active = false;
 
-int main() {
-    //Bluetooth initialization
+/** Line PID update phase accumulator (file scope so BLE start command can prime it). */
+static float lineTimer = 0.0f;
+
+static void seed_line_targets_from_sensors()
+{
+    const float position = sensorPCB.getPosition();
+    const float correction = linePID.compute(position, LINE_DT);
+    targetLeft = baseSpeed + correction;
+    targetRight = baseSpeed - correction;
+}
+
+static void stop_autonomous_no_spin()
+{
+    line_follow_active = false;
+    buggy.stop();
+    linePID.reset();
+    leftSpeedPID.reset();
+    rightSpeedPID.reset();
+    targetLeft = 0.0f;
+    targetRight = 0.0f;
+}
+
+/** BLE text line buffer for `line,kp,ki,kd` / `left,...` / `right,...` (newline-terminated). */
+static char ble_line_buf[96];
+static size_t ble_line_len = 0;
+
+static void ble_send_ack(const char *msg)
+{
+    bt.printf("%s\r\n", msg);
+}
+
+static void process_ble_text_line(const char *line)
+{
+    char cmd[16];
+    float kp = 0.0f;
+    float ki = 0.0f;
+    float kd = 0.0f;
+
+    if (sscanf(line, " %15[^,],%f,%f,%f", cmd, &kp, &ki, &kd) != 4) {
+        ble_send_ack("ERR format: line,kp,ki,kd or left/right,kp,ki,kd");
+        return;
+    }
+
+    if (strcmp(cmd, "line") == 0) {
+        linePID.setGains(kp, ki, kd);
+        linePID.reset();
+        ble_send_ack("OK line");
+    } else if (strcmp(cmd, "left") == 0) {
+        leftSpeedPID.setGains(kp, ki, kd);
+        leftSpeedPID.reset();
+        ble_send_ack("OK left");
+    } else if (strcmp(cmd, "right") == 0) {
+        rightSpeedPID.setGains(kp, ki, kd);
+        rightSpeedPID.reset();
+        ble_send_ack("OK right");
+    } else {
+        ble_send_ack("ERR unknown cmd (use line, left, right)");
+    }
+}
+
+static void poll_ble_serial()
+{
+    while (bt.readable()) {
+        const char c = static_cast<char>(bt.getc());
+
+        if (ble_line_len == 0 && (c == '1' || c == '2' || c == '3')) {
+            if (c == '1') {
+                line_follow_active = true;
+                buggy.setEnable(1);
+                linePID.reset();
+                leftSpeedPID.reset();
+                rightSpeedPID.reset();
+                lineTimer = LINE_DT;
+                seed_line_targets_from_sensors();
+            } else if (c == '2' || c == '3') {
+                stop_autonomous_no_spin();
+                if (c == '3') {
+                    const float kSpin180DistanceScale = 0.88f;
+                    const float kSpin180LeftFraction = 0.92f;
+                    buggy.rotateAngleTuned(180.0f, 500.0f, kSpin180DistanceScale, kSpin180LeftFraction);
+                    buggy.stop();
+                }
+            }
+            continue;
+        }
+
+        if (c == '\r' || c == '\n') {
+            if (ble_line_len > 0) {
+                ble_line_buf[ble_line_len] = '\0';
+                process_ble_text_line(ble_line_buf);
+                ble_line_len = 0;
+            }
+            continue;
+        }
+
+        if (ble_line_len + 1 < sizeof(ble_line_buf)) {
+            ble_line_buf[ble_line_len++] = c;
+        } else {
+            ble_line_len = 0;
+            ble_send_ack("ERR line too long");
+        }
+    }
+}
+
+int main()
+{
     bt.baud(9600);
 
     buggy.setEnable(0);
+    line_follow_active = false;
+    targetLeft = 0.0f;
+    targetRight = 0.0f;
 
-    // Initialization, runs once
-    float position = sensorPCB.getPosition();
-    float correction = linePID.compute(position, LINE_DT);
+    linePID.reset();
+    leftSpeedPID.reset();
+    rightSpeedPID.reset();
 
-    targetLeft  = baseSpeed + correction;
-    targetRight = baseSpeed - correction;
-
-    float lineTimer = 0.0f;
+    lineTimer = 0.0f;
 
     while (true) {
-        if (bt.readable()) {
-            char c = bt.getc();
+        poll_ble_serial();
 
-            if (c == 'G')
-                buggy.rotateAngle(180,500);
+        wait_us(1000);
 
-            else if (c == 'Y')
-                setColor(0,1.0,0);
-
-            else if (c == 'R')
-                setColor(0,0,1.0);
-            
-            else if (c == 'S')
-                buggy.stop();
-
-            else if (c == 'W')
-                setColor(0,0,0);
-
-            else if (c == 'O')
-                setColor(1.0,1.0,1.0);
-
+        if (!line_follow_active) {
+            buggy.stop();
+            continue;
         }
 
-        // Inner control loop (1 kHz)
-        wait_us(1000);  // enforce 1 kHz
-        float dt_speed = SPEED_DT;
+        const float dt_speed = SPEED_DT;
 
-        // Measure actual speed
-        float actualLeft  = leftEncoder.getVelocity();
-        float actualRight = rightEncoder.getVelocity();
+        const float actualLeft = leftEncoder.getVelocity();
+        const float actualRight = rightEncoder.getVelocity();
 
-        // Speed error
-        float errorLeft  = targetLeft - actualLeft;
-        float errorRight = targetRight - actualRight;
+        const float errorLeft = targetLeft - actualLeft;
+        const float errorRight = targetRight - actualRight;
 
-        // Speed PID → PWM
-        // Speed PID → PWM
-        float leftCmd  = leftSpeedPID.compute(errorLeft, dt_speed);
-        float rightCmd = rightSpeedPID.compute(errorRight, dt_speed);
+        const float leftCmd = leftSpeedPID.compute(errorLeft, dt_speed);
+        const float rightCmd = rightSpeedPID.compute(errorRight, dt_speed);
 
-        // Drive motors: The floats are now large enough (e.g., 500.5) 
-        // that casting them to an int (500) works perfectly.
         buggy.drive((int)leftCmd, (int)rightCmd);
 
-        // Outer control loop (100 Hz)
         lineTimer += dt_speed;
 
         if (lineTimer >= LINE_DT) {
             lineTimer = 0.0f;
 
-            float position = sensorPCB.getPosition();
+            const float position = sensorPCB.getPosition();
+            const float correction = linePID.compute(position, LINE_DT);
 
-            float correction = linePID.compute(position, LINE_DT);
-
-            targetLeft  = baseSpeed + correction;
+            targetLeft = baseSpeed + correction;
             targetRight = baseSpeed - correction;
         }
     }
