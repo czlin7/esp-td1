@@ -24,6 +24,8 @@ class SensorArray {
 private:
     AnalogIn s1, s2, s3, s4, s5, s6;
     float last_position;
+    int lost_count;
+    bool lost;
 
     static float readNormalized(AnalogIn& sensor) { return sensor.read(); }
 
@@ -46,12 +48,16 @@ public:
     enum { kParabolaDenomEpsTimes1e6 = 10 };
 
     SensorArray(PinName Sen1, PinName Sen2, PinName Sen3, PinName Sen4, PinName Sen5, PinName Sen6)
-        : s1(Sen1), s2(Sen2), s3(Sen3), s4(Sen4), s5(Sen5), s6(Sen6), last_position(0.0f) {}
+        : s1(Sen1), s2(Sen2), s3(Sen3), s4(Sen4), s5(Sen5), s6(Sen6), last_position(0.0f) { lost = false}
 
     /**
      * @param line_detected optional; pass 0 to ignore. When not 0, set false if returning
      *        last_position (line not seen), true if a fresh peak was used.
      */
+    bool getlost() {
+        return lost;
+    }
+
     float getPosition(bool* line_detected = 0)
     {
         float v[6];
@@ -71,6 +77,11 @@ public:
         if (max_val < line_lost_thresh) {
             if (line_detected != 0) {
                 *line_detected = false;
+                lost_count += 1;
+                if (lost_count >= 10) {
+                    lost_count = 0;
+                    
+                }
             }
             return last_position;
         }
