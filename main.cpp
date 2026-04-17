@@ -113,9 +113,10 @@ static void poll_ble_serial()
             } else if (c == '2' || c == '3') {
                 stop_autonomous_no_spin();
                 if (c == '3') {
-                    const float kSpin180DistanceScale = 0.88f;
-                    const float kSpin180LeftFraction = 0.92f;
-                    buggy.rotateAngleTuned(180.0f, 500.0f, kSpin180DistanceScale, kSpin180LeftFraction);
+                    //const float kSpin180DistanceScale = 0.88f;
+                    //const float kSpin180LeftFraction = 0.92f;
+                    //buggy.rotateAngleTuned(180.0f, 500.0f, kSpin180DistanceScale, kSpin180LeftFraction);
+                    buggy.rotateAngle(180,300);
                     buggy.stop();
                 }
             }
@@ -163,6 +164,10 @@ int main()
         if (!line_follow_active) {
             buggy.stop();
             continue;
+        }
+
+        if (lost) {
+            buggy.stop();
         }
 
         const float dt_speed = SPEED_DT;
