@@ -107,6 +107,46 @@ public:
         rightMotor->move(0);
     }
 
+    void rotateAngle(float angle_deg, float speed){
+        const float PI = 3.14159265359f;
+        float angle_rad = angle_deg * PI/180.0f;
+        const float wheelBase = 0.16f; // Measure and enter the value
+
+        // Distance targeted for the desired rotation? or turning?
+        float targetDistance = (angle_rad * wheelBase) / 2.0f;
+
+        // Reset encoders to measure counts for turning desired degree
+        leftEncoder->reset();
+        rightEncoder->reset();
+
+        // Determine direction of turning
+        float leftSpeed = (angle_deg > 0) ? speed : -speed;
+        float rightSpeed = (angle_deg > 0) ? -speed : speed;
+
+        // Actaute motor to turn at desired speed
+        enable.write(1);
+        leftMotor->move(leftSpeed);
+        rightMotor->move(rightSpeed);
+
+        // Turning while loop while measuring count/degree of turning using encoder
+        while(true)
+        {
+            float distL = fabs(leftEncoder->getDistance());
+            float distR = fabs(rightEncoder->getDistance());
+            float avgDist = (distL + distR) * 0.5f;
+            //printf("L %.3f R %.3f\n", distL, distR);
+            if (avgDist >= fabs(targetDistance))
+            break;
+
+        wait(0.0004f);
+        }
+
+        // Stop motor once desired angle has reached
+        enable.write(0);
+        leftMotor->move(0);
+        rightMotor->move(0);
+    }
+
     /**
      * @brief In-place turn with tunable overshoot trim (distinct name for armcc / old toolchains).
      * @param distance_scale Multiply encoder travel target (use < 1 if the body overspins vs wheels).
