@@ -1,44 +1,92 @@
-#include "mbed.h"
-#include "sensor.h"
+#pragma once
 
-class sensorArray{
-    private:
-        Sensor *sensors[6];
-        float x_peak;
+#include <cmath>
 
-    public:
-        sensorArray(Sensor *one, Sensor *two, Sensor *three, Sensor *four, Sensor *five, Sensor *six) {
-            sensors[0] = one;
-            sensors[1] = two;
-            sensors[2] = three;
-            sensors[3] = four;
-            sensors[4] = five;
-            sensors[5] = six;
+/**
+ * Discrete PID with output clamping, conditional integral anti-windup,
+ * first-order derivative filtering, and invalid-dt guarding.
+ */
+class PID {
+private:
+    float Kp, Ki, Kd;
+    float prev_error;
+    float integral;
+    float out_min, out_max;
+    float d_filtered;
+    float d_filter_alpha;
+    float last_output;
+
+public:
+    PID(float p, float i, float d, float min, float max)
+        : Kp(p),
+          Ki(i),
+          Kd(d),
+          prev_error(0),
+          integral(0),
+          out_min(min),
+          out_max(max),
+          d_filtered(0),
+          d_filter_alpha(0.35f),
+          last_output(0) {}
+
+    /** Replace proportional, integral, and derivative gains (output limits unchanged). */
+    void setGains(float p, float i, float d) {
+        Kp = p;
+        Ki = i;
+        Kd = d;
+    }
+
+    /** Alpha in (0,1]: higher = derivative follows changes faster (less filtering). */
+    void setDerivativeFilterAlpha(float alpha) {
+        if (alpha < 1e-4f) {
+            alpha = 1e-4f;
+        }
+        if (alpha > 1.0f) {
+            alpha = 1.0f;
+        }
+        d_filter_alpha = alpha;
+    }
+
+    float compute(float error, float dt) {
+        if (dt < 1e-6f) {
+            return last_output;
         }
 
-        float calculate_position(){
-            float voltages[6];
-            int max_index = 0;
-            float max_val = 0;
+        const float P = Kp * error;
 
-            for (int i = 0; i < 6; i++) {
-                voltages[i] = sensors[i]->get_voltage();
-                if (voltages[i] > max_val) {
-                    max_val = voltages[i];
-                    max_index = i;
-                }
-            }
-
-            float v_center = voltages[max_index];
-            float v_left = (max_index > 0) ? voltages[max_index - 1] : 0.0f;
-            float v_right = (max_index < 5) ? voltages[max_index + 1] : 0.0f;
-
-            float denominator = 2.0f * (v_left - (2.0f * v_center) + v_right);
-
-            if (denominator != 0.0f) {
-                x_peak = (v_left - v_right) / denominator;
-            }
-
-            return x_peak;
+        if (fabsf(Ki) > 1e-12f) {
+            integral += error * dt;
         }
+        float I = Ki * integral;
+
+        const float d_raw = (error - prev_error) / dt;
+        d_filtered += d_filter_alpha * (d_raw - d_filtered);
+        const float D = Kd * d_filtered;
+
+        float output = P + I + D;
+
+        if (output > out_max) {
+            output = out_max;
+            if (error > 0.0f && fabsf(Ki) > 1e-12f) {
+                integral -= error * dt;
+            }
+        } else if (output < out_min) {
+            output = out_min;
+            if (error < 0.0f && fabsf(Ki) > 1e-12f) {
+                integral -= error * dt;
+            }
+        }
+
+        prev_error = error;
+        last_output = output;
+        return output;
+    }
+
+    void reset() {
+        prev_error = 0;
+        integral = 0;
+        d_filtered = 0;
+        last_output = 0;
+    }
 };
+
