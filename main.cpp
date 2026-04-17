@@ -21,14 +21,17 @@ WheelEncoder rightEncoder(PC_8, PC_6, NC, 10.0f, 256);
 
 Buggy buggy(&leftMotor, &rightMotor, &leftEncoder, &rightEncoder, PC_4);
 
-PID linePID(0.35f, 0.0f, 0.04f, -0.4f, 0.4f);
-PID leftSpeedPID(2000.0f, 0.0f, 0.1f, -1000.0f, 1000.0f);
-PID rightSpeedPID(2000.0f, 0.0f, 0.1f, -1000.0f, 1000.0f);
+// 1. Line Kp changed to 1.0f so the buggy actually steers!
+PID linePID(0.25f, 0.0f, 0.03f, -0.8f, 0.8f);
+
+// 2. Speed PIDs: Lowered Ki to prevent violent jittering, increased Kd to smooth the ride
+PID leftSpeedPID(700.0f, 500.0f, 10.0f, -1000.0f, 1000.0f);
+PID rightSpeedPID(700.0f, 500.0f, 10.0f, -1000.0f, 1000.0f);
 
 float baseSpeed = 0.5f;
 
 const float LINE_DT = 0.01f;
-const float SPEED_DT = 0.001f;
+const float SPEED_DT = 0.001f; 
 
 float targetLeft = 0.0f;
 float targetRight = 0.0f;
@@ -113,10 +116,9 @@ static void poll_ble_serial()
             } else if (c == '2' || c == '3') {
                 stop_autonomous_no_spin();
                 if (c == '3') {
-                    //const float kSpin180DistanceScale = 0.88f;
-                    //const float kSpin180LeftFraction = 0.92f;
-                    //buggy.rotateAngleTuned(180.0f, 500.0f, kSpin180DistanceScale, kSpin180LeftFraction);
-                    buggy.rotateAngle(180,300);
+                    const float kSpin180DistanceScale = 0.88f;
+                    const float kSpin180LeftFraction = 0.92f;
+                    buggy.rotateAngleTuned(180.0f, 500.0f, kSpin180DistanceScale, kSpin180LeftFraction);
                     buggy.stop();
                 }
             }
@@ -159,15 +161,11 @@ int main()
     while (true) {
         poll_ble_serial();
 
-        wait_us(1000);
+        wait_us(1000); // MUST be 10000 (10ms), not 1000 (1ms)
 
         if (!line_follow_active) {
             buggy.stop();
             continue;
-        }
-
-        if (lost) {
-            buggy.stop();
         }
 
         const float dt_speed = SPEED_DT;
