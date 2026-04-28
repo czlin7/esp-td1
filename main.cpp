@@ -18,16 +18,16 @@ WheelEncoder rightEncoder(PC_8,  PC_6, NC, 10.0f, 256);
 Buggy        buggy(&leftMotor, &rightMotor, &leftEncoder, &rightEncoder, PC_4);
 
 
-PID linePID(0.4f, 0.0f, 0.04f, -0.8f, 0.8f);
-PID leftSpeedPID(7.0f,  0.0f, 0.0f, -2000.0f, 2000.0f);
-PID rightSpeedPID(7.0f, 0.0f, 0.0f, -2000.0f, 2000.0f);
+PID linePID(31.0f, 0.0f, 2.5f, -150.0f, 150.0f);
+PID leftSpeedPID(30.0f,  0.0f, 0.0f, -2000.0f, 2000.0f);
+PID rightSpeedPID(75.0f, 0.0f, 20.0f, -2000.0f, 2000.0f);
 
 
-const float LINE_DT  = 0.01f;   // 10 ms  — line PID period
+const float LINE_DT  = 0.0025f;   // 2ms 10 ms  — line PID period
 const float SPEED_DT = 0.001f;  // 1 ms   — main loop tick
 
 
-float baseSpeed = 0.2f;
+float baseSpeed = 30.0f;
 
 #define START_LINE_ON_BOOT  0
 #define LINE_LOST_THRESHOLD 7   // 5 × 10 ms = 50 ms of lost line before stop
@@ -42,6 +42,9 @@ static float cachedLeft         = 0.0f;
 static float cachedRight        = 0.0f;
 static int   line_lost_count    = 0;
 static float lineTimer          = 0.0f;
+static bool  telem_raw_enabled  = false;
+static bool  telem_ps_enabled   = false;
+static bool  telem_vel_enabled  = false;
 
 
 static char   ble_line_buf[96];
@@ -80,26 +83,61 @@ static void process_ble_text_line(const char *line)
     char  cmd[16];
     float kp = 0.0f, ki = 0.0f, kd = 0.0f;
 
-    if (sscanf(line, " %15[^,],%f,%f,%f", cmd, &kp, &ki, &kd) != 4) {
-        ble_send_line("ERR format: line,kp,ki,kd  or  left/right,kp,ki,kd");
-        return;
+    // Parse 3-float control commands first (line/left/right/base)
+    if (sscanf(line, " %15[^,],%f,%f,%f", cmd, &kp, &ki, &kd) == 4) {
+        if (strcmp(cmd, "line") == 0) {
+            linePID.setGains(kp, ki, kd);
+            bt.printf("line=%.4f,%.4f,%.4f\r\n", kp, ki, kd);
+            return;
+        } else if (strcmp(cmd, "left") == 0) {
+            leftSpeedPID.setGains(kp, ki, kd);
+            bt.printf("left=%.4f,%.4f,%.4f\r\n", kp, ki, kd);
+            return;
+        } else if (strcmp(cmd, "right") == 0) {
+            rightSpeedPID.setGains(kp, ki, kd);
+            bt.printf("right=%.4f,%.4f,%.4f\r\n", kp, ki, kd);
+            return;
+        } else if (strcmp(cmd, "base") == 0) {
+            baseSpeed = kp;   // reuse kp slot for the single float
+            bt.printf("base=%.4f\r\n", baseSpeed);
+            return;
+        }
     }
 
-    if (strcmp(cmd, "line") == 0) {
-        linePID.setGains(kp, ki, kd);
-        bt.printf("line=%.4f,%.4f,%.4f\r\n", kp, ki, kd);
-    } else if (strcmp(cmd, "left") == 0) {
-        leftSpeedPID.setGains(kp, ki, kd);
-        bt.printf("left=%.4f,%.4f,%.4f\r\n", kp, ki, kd);
-    } else if (strcmp(cmd, "right") == 0) {
-        rightSpeedPID.setGains(kp, ki, kd);
-        bt.printf("right=%.4f,%.4f,%.4f\r\n", kp, ki, kd);
-    } else if (strcmp(cmd, "base") == 0) {
-        baseSpeed = kp;   // reuse kp slot for the single float
-        bt.printf("base=%.4f\r\n", baseSpeed);
-    } else {
-        ble_send_line("ERR unknown cmd");
+    // Parse telemetry toggles (raw/ps/vel, optional 0/1)
+    if (sscanf(line, " %15[^,],%f", cmd, &kp) == 2) {
+        if (strcmp(cmd, "raw") == 0) {
+            telem_raw_enabled = (kp != 0.0f);
+            ble_send_line(telem_raw_enabled ? "OK raw on" : "OK raw off");
+            return;
+        } else if (strcmp(cmd, "ps") == 0) {
+            telem_ps_enabled = (kp != 0.0f);
+            ble_send_line(telem_ps_enabled ? "OK ps on" : "OK ps off");
+            return;
+        } else if (strcmp(cmd, "vel") == 0) {
+            telem_vel_enabled = (kp != 0.0f);
+            ble_send_line(telem_vel_enabled ? "OK vel on" : "OK vel off");
+            return;
+        }
     }
+
+    if (sscanf(line, " %15s", cmd) == 1) {
+        if (strcmp(cmd, "raw") == 0) {
+            telem_raw_enabled = true;
+            ble_send_line("OK raw on");
+            return;
+        } else if (strcmp(cmd, "ps") == 0) {
+            telem_ps_enabled = true;
+            ble_send_line("OK ps on");
+            return;
+        } else if (strcmp(cmd, "vel") == 0) {
+            telem_vel_enabled = true;
+            ble_send_line("OK vel on");
+            return;
+        }
+    }
+
+    ble_send_line("ERR format: line/left/right,kp,ki,kd or raw|ps|vel[,0|1]");
 }
 
 static void poll_ble_serial()
@@ -123,7 +161,7 @@ static void poll_ble_serial()
                 ble_send_line("OK stop");
             } else {
                 stop_autonomous_no_spin();
-                buggy.rotateAngle(160.0f, 125.0f);
+                buggy.rotateAngle(140.0f, 125.0f);
                 buggy.stop();
                 ble_send_line("OK 180");
             }
@@ -171,6 +209,9 @@ int main()
     rightSpeedPID.reset();
     lineTimer    = 0.0f;
     ble_line_len = 0;
+    telem_raw_enabled = false;
+    telem_ps_enabled  = false;
+    telem_vel_enabled = false;
 
 #if START_LINE_ON_BOOT
     line_follow_active = true;
@@ -220,11 +261,11 @@ int main()
                 if (v[i] > max_val) max_val = v[i];
             }
 
-            if (max_val < 0.40f) {
+            if (max_val < 0.45f) {
                 line_lost_count++;
                 if (line_lost_count >= LINE_LOST_THRESHOLD) {
-                    stop_autonomous_no_spin();
-                    ble_send_line("STOP line ended");
+                    //stop_autonomous_no_spin();
+                    //ble_send_line("STOP line ended");
                 }
                 // Below threshold: coast on last valid targets
             } else {
@@ -237,12 +278,33 @@ int main()
                 targetRight = baseSpeed - correction;
             }
 
+            // Raw ADC-normalized sensor values — every line PID tick (10 ms)
+            // // if (telem_raw_enabled && !bt.readable()) {
+            //     char raw_msg[96];
+            //     snprintf(raw_msg, sizeof(raw_msg),
+            //              "RAW %.4f,%.4f,%.4f,%.4f,%.4f,%.4f",
+            //              v[0], v[1], v[2], v[3], v[4], v[5]);
+            //     ble_send_line(raw_msg);
+            // }
+
+            // Wheel speed telemetry (encoder velocities) — every 100 ms
+            // static int vel_tick = 0;
+            // if (telem_vel_enabled && ((++vel_tick % 10) == 0) && !bt.readable()) {
+            //     char vel_msg[48];
+            //     snprintf(vel_msg, sizeof(vel_msg), "VEL L=%.4f,R=%.4f", cachedLeft, cachedRight);
+            //     ble_send_line(vel_msg);
+            // } else if (!telem_vel_enabled) {
+            //     vel_tick = 0;
+            // }
+
             // Position telemetry — every 250 ms (25 × 10 ms ticks)
             static int pos_tick = 0;
-            if ((++pos_tick % 25) == 0) {
+            if (telem_ps_enabled && ((++pos_tick % 25) == 0) && !bt.readable()) {
                 char msg[32];
                 snprintf(msg, sizeof(msg), "POS %.4f", filtered_position);
                 ble_send_line(msg);
+            } else if (!telem_ps_enabled) {
+                pos_tick = 0;
             }
 
             poll_ble_serial();
