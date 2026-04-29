@@ -1,0 +1,373 @@
+#include "mbed.h"
+#include <cstdio>
+#include <cstring>
+
+#include "header/sensor.h"
+#include "header/motors.h"
+#include "header/encoder.h"
+#include "header/buggy.h"
+#include "header/PID.h"
+
+#define BLE_TX_PIN PA_11
+#define BLE_RX_PIN PA_12
+Serial bt(BLE_TX_PIN, BLE_RX_PIN);
+
+SensorArray sensorPCB(PC_0, PB_0, PC_1, PA_4, PA_0, PA_1);
+
+Motor rightMotor(PA_15, PC_2, PA_14);
+Motor leftMotor(PB_7, PC_3, PA_13);
+
+WheelEncoder leftEncoder(PC_10, PC_12, NC, 10.0f, 256);
+WheelEncoder rightEncoder(PC_8, PC_6, NC, 10.0f, 256);
+
+Buggy buggy(&leftMotor, &rightMotor, &leftEncoder, &rightEncoder, PC_4);
+
+PID linePID(0.25, 0.0f, 0.0f, -0.15f, 0.15f);
+PID leftSpeedPID(7.0f, 0.0f, 0.0f, -1000.0f, 1000.0f);
+PID rightSpeedPID(7.0f, 0.0f, 0.0f, -1000.0f, 1000.0f);
+
+float baseSpeed = 0.2f;
+
+const float LINE_DT  = 0.01f;
+const float SPEED_DT = 0.001f;
+
+static int  line_lost_count     = 0;
+const  int  LINE_LOST_THRESHOLD = 3;
+static int  line_weak_warn_skip = 0;
+
+float targetLeft  = 0.0f;
+float targetRight = 0.0f;
+
+static float cachedLeft  = 0.0f;
+static float cachedRight = 0.0f;
+
+static bool  line_follow_active = false;
+static bool  test_active        = false;
+static bool  raw_print_active   = false;
+static float lineTimer          = 0.0f;
+
+// Declared here so dbg print can always access them
+static float filtered_position  = 0.0f;
+static float raw_position_last  = 0.0f;
+
+static char   ble_line_buf[96];
+static size_t ble_line_len = 0;
+
+static void poll_ble_serial();
+
+// ── BLE helpers ────────────────────────────────────────────────────────────────
+// At 9600 baud, each byte ~1 ms on the wire — long TX blocks the main loop and the
+// tiny UART RX FIFO can overflow if we don't poll while sending. Interleave RX polls.
+
+static void ble_send_line(const char *msg)
+{
+    int n = 0;
+    for (const char *p = msg; *p; ++p) {
+        bt.putc(*p);
+        if ((++n & 7) == 0) {
+            poll_ble_serial();
+        }
+    }
+    bt.putc('\r');
+    bt.putc('\n');
+    poll_ble_serial();
+}
+
+// ── Internal helpers ───────────────────────────────────────────────────────────
+
+static void seed_line_targets_from_sensors()
+{
+    const float position   = sensorPCB.getPosition();
+    const float correction = linePID.compute(position, LINE_DT);
+    targetLeft  = baseSpeed + correction;
+    targetRight = baseSpeed - correction;
+}
+
+static void stop_autonomous_no_spin()
+{
+    line_follow_active  = false;
+    test_active         = false;
+    line_lost_count     = 0;
+    filtered_position   = 0.0f;
+    raw_position_last   = 0.0f;
+    buggy.stop();
+    linePID.reset();
+    leftSpeedPID.reset();
+    rightSpeedPID.reset();
+    targetLeft  = 0.0f;
+    targetRight = 0.0f;
+    cachedLeft  = 0.0f;
+    cachedRight = 0.0f;
+}
+
+// ── BLE command parser ─────────────────────────────────────────────────────────
+
+static void process_ble_text_line(const char *line)
+{
+    char reply[96];
+
+    // // rawon / rawoff / raw — longer strings checked first to avoid prefix clash
+    // if (strncmp(line, "rawon", 5) == 0) {
+    //     raw_print_active = true;
+    //     ble_send_line("OK raw printing on");
+    //     return;
+    // }
+
+    // if (strncmp(line, "rawoff", 6) == 0) {
+    //     raw_print_active = false;
+    //     ble_send_line("OK raw printing off");
+    //     return;
+    // }
+
+    // if (strncmp(line, "raw", 3) == 0) {
+    //     float v[6];
+    //     sensorPCB.readRaw(v);
+    //     char msg[96];
+    //     snprintf(msg, sizeof(msg),
+    //              "RAW %.3f %.3f %.3f %.3f %.3f %.3f",
+    //              v[0], v[1], v[2], v[3], v[4], v[5]);
+    //     ble_send_line(msg);
+    //     return;
+    // }
+
+    // speed,val
+    float spd = 0.0f;
+    if (sscanf(line, " speed,%f", &spd) == 1) {
+        baseSpeed = spd;
+        snprintf(reply, sizeof(reply), "OK speed=%.4f", baseSpeed);
+        ble_send_line(reply);
+        return;
+    }
+
+    // // test,stop
+    // if (strncmp(line, "test,stop", 9) == 0) {
+    //     test_active = false;
+    //     buggy.stop();
+    //     ble_send_line("OK test stopped");
+    //     return;
+    // }
+
+    // // test,leftSpeed,rightSpeed
+    // int testL = 0, testR = 0;
+    // if (sscanf(line, " test,%d,%d", &testL, &testR) == 2) {
+    //     line_follow_active = false;
+    //     test_active = true;
+    //     buggy.setEnable(1);
+    //     buggy.drive(testL, testR);
+    //     snprintf(reply, sizeof(reply), "OK test L=%d R=%d", testL, testR);
+    //     ble_send_line(reply);
+    //     return;
+    // }
+
+    // line,kp,ki,kd  /  left,kp,ki,kd  /  right,kp,ki,kd
+    char  cmd[16];
+    float kp = 0.0f, ki = 0.0f, kd = 0.0f;
+
+    if (sscanf(line, " %15[^,],%f,%f,%f", cmd, &kp, &ki, &kd) != 4) {
+        ble_send_line("ERR use: rawon | rawoff | raw | speed,val | test,L,R | test,stop | line/left/right,kp,ki,kd");
+        return;
+    }
+
+    if (strcmp(cmd, "line") == 0) {
+        linePID.setGains(kp, ki, kd);
+        snprintf(reply, sizeof(reply),
+                 "OK line Kp=%.5f Ki=%.5f Kd=%.5f out=[%.3f,%.3f]",
+                 linePID.getKp(), linePID.getKi(), linePID.getKd(),
+                 linePID.getOutMin(), linePID.getOutMax());
+        ble_send_line(reply);
+
+    } else if (strcmp(cmd, "left") == 0) {
+        leftSpeedPID.setGains(kp, ki, kd);
+        snprintf(reply, sizeof(reply),
+                 "OK left Kp=%.5f Ki=%.5f Kd=%.5f",
+                 leftSpeedPID.getKp(), leftSpeedPID.getKi(), leftSpeedPID.getKd());
+        ble_send_line(reply);
+
+    } else if (strcmp(cmd, "right") == 0) {
+        rightSpeedPID.setGains(kp, ki, kd);
+        snprintf(reply, sizeof(reply),
+                 "OK right Kp=%.5f Ki=%.5f Kd=%.5f",
+                 rightSpeedPID.getKp(), rightSpeedPID.getKi(), rightSpeedPID.getKd());
+        ble_send_line(reply);
+
+    } else {
+        ble_send_line("ERR unknown cmd (speed, test, line, left, right)");
+    }
+}
+
+// ── BLE serial poller ──────────────────────────────────────────────────────────
+
+static void poll_ble_serial()
+{
+    while (bt.readable()) {
+        const char c = static_cast<char>(bt.getc());
+
+        if (c == '\r' || c == '\n') {
+            if (ble_line_len > 0) {
+                ble_line_buf[ble_line_len] = '\0';
+                process_ble_text_line(ble_line_buf);
+                ble_line_len = 0;
+            }
+            continue;
+        }
+
+        if (ble_line_len == 0 &&
+            (c == '1' || c == '2' || c == '3' ||
+             c == 0x01 || c == 0x02 || c == 0x03))
+        {
+            if (c == '1' || c == 0x01) {
+                test_active        = false;
+                line_follow_active = true;
+                buggy.setEnable(1);
+                linePID.reset();
+                leftSpeedPID.reset();
+                rightSpeedPID.reset();
+                cachedLeft        = 0.0f;
+                cachedRight       = 0.0f;
+                filtered_position = 0.0f;
+                raw_position_last = 0.0f;
+                line_lost_count   = 0;
+                lineTimer         = LINE_DT;
+                seed_line_targets_from_sensors();
+                ble_send_line("OK1");
+
+            } else if (c == '2' || c == 0x02) {
+                stop_autonomous_no_spin();
+                ble_send_line("OK2");
+
+            } else {
+                stop_autonomous_no_spin();
+                buggy.rotateAngle(95.0f, 50.0f);
+                buggy.stop();
+                ble_send_line("OK3");
+            }
+            continue;
+        }
+
+        if (ble_line_len + 1 < sizeof(ble_line_buf)) {
+            ble_line_buf[ble_line_len++] = c;
+        } else {
+            ble_line_len = 0;
+            ble_send_line("ERR line too long");
+        }
+    }
+}
+
+// ── Main ───────────────────────────────────────────────────────────────────────
+
+int main()
+{
+    bt.baud(9600);
+    wait_ms(150);
+
+    buggy.setEnable(0);
+    line_follow_active = false;
+    test_active        = false;
+    raw_print_active   = false;
+    filtered_position  = 0.0f;
+    raw_position_last  = 0.0f;
+    targetLeft         = 0.0f;
+    targetRight        = 0.0f;
+    cachedLeft         = 0.0f;
+    cachedRight        = 0.0f;
+    line_lost_count    = 0;
+
+    linePID.reset();
+    leftSpeedPID.reset();
+    rightSpeedPID.reset();
+    lineTimer    = 0.0f;
+    ble_line_len = 0;
+
+    while (true) {
+        poll_ble_serial();
+        wait_us(1000);
+        poll_ble_serial();
+
+        if (test_active) {
+            continue;
+        }
+
+        if (!line_follow_active) {
+            buggy.stop();
+            continue;
+        }
+
+        // ── Speed loop (every ~1 ms) ──────────────────────────────────────────
+        const float errorLeft  = targetLeft  - cachedLeft;
+        const float errorRight = targetRight - cachedRight;
+
+        const float leftCmd  = leftSpeedPID.compute(errorLeft,  SPEED_DT);
+        const float rightCmd = rightSpeedPID.compute(errorRight, SPEED_DT);
+
+        buggy.drive((int)leftCmd, (int)rightCmd);
+
+        lineTimer += SPEED_DT;
+
+        // ── Line + velocity loop (every 10 ms) ───────────────────────────────
+        if (lineTimer >= LINE_DT) {
+            lineTimer = 0.0f;
+
+            cachedLeft  = leftEncoder.getVelocity();
+            cachedRight = rightEncoder.getVelocity();
+
+            // // Raw print if enabled
+            // if (raw_print_active) {
+            //     float v[6];
+            //     sensorPCB.readRaw(v);
+            //     char raw_msg[96];
+            //     snprintf(raw_msg, sizeof(raw_msg),
+            //              "RAW %.2f %.2f %.2f %.2f %.2f %.2f",
+            //              v[0], v[1], v[2], v[3], v[4], v[5]);
+            //     ble_send_line(raw_msg);
+            // }
+
+            // Line lost detection
+            float v_check[6];
+            sensorPCB.readRaw(v_check);
+            float max_check = v_check[0];
+            for (int i = 1; i < 6; i++) {
+                if (v_check[i] > max_check) max_check = v_check[i];
+            }
+
+            if (max_check < 0.40f) {
+                line_lost_count++;
+                // Do not spam WARN every 10 ms — it blocks TX for ~ms each and starves RX.
+                if ((line_weak_warn_skip++ % 8) == 0) {
+                    char lost_msg[48];
+                    snprintf(lost_msg, sizeof(lost_msg), "WARN line weak max=%.2f count=%d", max_check,
+                             line_lost_count);
+                    ble_send_line(lost_msg);
+                }
+
+                if (line_lost_count >= LINE_LOST_THRESHOLD) {
+                    stop_autonomous_no_spin();
+                    ble_send_line("LOST line lost — buggy stopped");
+                    continue;   // skip rest of loop, buggy is now stopped
+                }
+
+            } else {
+                line_lost_count     = 0;
+                line_weak_warn_skip = 0;
+
+                // Update position and targets only when line is visible
+                raw_position_last = sensorPCB.getPosition();
+                filtered_position = 0.3f * raw_position_last + 0.7f * filtered_position;
+
+                const float correction = linePID.compute(filtered_position, LINE_DT);
+
+                targetLeft  = baseSpeed + correction;
+                targetRight = baseSpeed - correction;
+            }
+
+            // // Always print debug so you can see what's happening
+            // char dbg[64];
+            // snprintf(dbg, sizeof(dbg),
+            //          "VEL L=%.4f R=%.4f POS %.3f RAW %.3f",
+            //          cachedLeft, cachedRight,
+            //          filtered_position, raw_position_last);
+            // ble_send_line(dbg);
+
+            poll_ble_serial();
+        }
+    }
+}
