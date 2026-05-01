@@ -9,6 +9,7 @@
 #include "PID.h"
 
 Serial bt(PA_9, PA_10);
+InterruptIn userButton(USER_BUTTON);
 
 SensorArray  sensorPCB(PC_0, PB_0, PC_1, PA_4, PA_0, PA_1);
 Motor        rightMotor(PA_15, PC_2, PA_14);
@@ -18,9 +19,9 @@ WheelEncoder rightEncoder(PC_8,  PC_6, NC, 10.0f, 256);
 Buggy        buggy(&leftMotor, &rightMotor, &leftEncoder, &rightEncoder, PC_4);
 
 
-PID linePID(40.0f, 0.0f, 1.2f, -150.0f, 150.0f);
-PID leftSpeedPID(30.0f,  2.0f, 0.0f, -2000.0f, 2000.0f);
-PID rightSpeedPID(30.0f, 2.0f, 0.0f, -2000.0f, 2000.0f);
+PID linePID(39.0f, 0.0f, 1.0f, -150.0f, 150.0f);
+PID leftSpeedPID(30.0f,  2.0f, 0.0f, -1000.0f, 1000.0f);
+PID rightSpeedPID(30.0f, 2.0f, 0.0f, -1000.0f, 1000.0f);
 
 
 const float LINE_DT  = 0.0025f;   // 2ms 10 ms  — line PID period
@@ -28,9 +29,11 @@ const float SPEED_DT = 0.001f;  // 1 ms   — main loop tick
 
 
 float baseSpeed = 25.0f;
+float downhillMaxSpeed = 25.0f;
+float downhillBrakeGain = 2.5f;
 
 #define START_LINE_ON_BOOT  0
-#define LINE_LOST_THRESHOLD 30   // 5 × 10 ms = 50 ms of lost line before stop
+#define LINE_LOST_THRESHOLD 20   // 5 × 10 ms = 50 ms of lost line before stop
 
 
 static bool  line_follow_active = false;
@@ -45,6 +48,9 @@ static float lineTimer          = 0.0f;
 static bool  telem_raw_enabled  = false;
 static bool  telem_ps_enabled   = false;
 static bool  telem_vel_enabled  = false;
+static bool  telem_target_enabled = false;
+static volatile bool button_start_requested = false;
+static Timer buttonDebounceTimer;
 
 
 static char   ble_line_buf[96];
@@ -62,6 +68,23 @@ static void seed_line_targets_from_sensors()
     const float correction = linePID.compute(position, LINE_DT);
     targetLeft  = baseSpeed + correction;
     targetRight = baseSpeed - correction;
+}
+
+static void start_autonomous_line_follow()
+{
+    line_follow_active = true;
+    buggy.setEnable(1);
+    linePID.reset();
+    leftSpeedPID.reset();
+    rightSpeedPID.reset();
+    line_lost_count = 0;
+    lineTimer       = LINE_DT;
+    seed_line_targets_from_sensors();
+}
+
+static void on_user_button_pressed()
+{
+    button_start_requested = true;
 }
 
 static void stop_autonomous_no_spin()
@@ -104,7 +127,7 @@ static void process_ble_text_line(const char *line)
         }
     }
 
-    // Parse telemetry toggles (raw/ps/vel, optional 0/1)
+    // Parse telemetry toggles (raw/ps/vel/target, optional 0/1)
     if (sscanf(line, " %15[^,],%f", cmd, &kp) == 2) {
         if (strcmp(cmd, "raw") == 0) {
             telem_raw_enabled = (kp != 0.0f);
@@ -117,6 +140,18 @@ static void process_ble_text_line(const char *line)
         } else if (strcmp(cmd, "vel") == 0) {
             telem_vel_enabled = (kp != 0.0f);
             ble_send_line(telem_vel_enabled ? "OK vel on" : "OK vel off");
+            return;
+        } else if (strcmp(cmd, "target") == 0) {
+            telem_target_enabled = (kp != 0.0f);
+            ble_send_line(telem_target_enabled ? "OK target on" : "OK target off");
+            return;
+        } else if (strcmp(cmd, "vmax") == 0) {
+            downhillMaxSpeed = kp;
+            bt.printf("vmax=%.4f\r\n", downhillMaxSpeed);
+            return;
+        } else if (strcmp(cmd, "vbrake") == 0) {
+            downhillBrakeGain = kp;
+            bt.printf("vbrake=%.4f\r\n", downhillBrakeGain);
             return;
         }
     }
@@ -134,10 +169,14 @@ static void process_ble_text_line(const char *line)
             telem_vel_enabled = true;
             ble_send_line("OK vel on");
             return;
+        } else if (strcmp(cmd, "target") == 0) {
+            telem_target_enabled = true;
+            ble_send_line("OK target on");
+            return;
         }
     }
 
-    ble_send_line("ERR format: line/left/right,kp,ki,kd or raw|ps|vel[,0|1]");
+    ble_send_line("ERR format: line/left/right,kp,ki,kd | base,spd | vmax,spd | vbrake,gain | raw|ps|vel|target[,0|1]");
 }
 
 static void poll_ble_serial()
@@ -147,14 +186,7 @@ static void poll_ble_serial()
 
         if (ble_line_len == 0 && (c == '1' || c == '2' || c == '3')) {
             if (c == '1') {
-                line_follow_active = true;
-                buggy.setEnable(1);
-                linePID.reset();
-                leftSpeedPID.reset();
-                rightSpeedPID.reset();
-                line_lost_count = 0;
-                lineTimer       = LINE_DT;
-                seed_line_targets_from_sensors();
+                start_autonomous_line_follow();
                 ble_send_line("OK start");
             } else if (c == '2') {
                 stop_autonomous_no_spin();
@@ -165,14 +197,7 @@ static void poll_ble_serial()
                 buggy.rotateAngle(200.0f, 125.0f);
                 buggy.stop();
                 ble_send_line("OK 180");
-                 line_follow_active = true;
-                buggy.setEnable(1);
-                linePID.reset();
-                leftSpeedPID.reset();
-                rightSpeedPID.reset();
-                line_lost_count = 0;
-                lineTimer       = LINE_DT;
-                seed_line_targets_from_sensors();
+                start_autonomous_line_follow();
             }
             continue;
         }
@@ -200,6 +225,8 @@ int main()
 {
     bt.baud(9600);
     wait_ms(150);
+    buttonDebounceTimer.start();
+    userButton.fall(&on_user_button_pressed);
 
     ble_send_line("READY");
 
@@ -221,19 +248,26 @@ int main()
     telem_raw_enabled = false;
     telem_ps_enabled  = false;
     telem_vel_enabled = false;
+    telem_target_enabled = false;
 
 #if START_LINE_ON_BOOT
-    line_follow_active = true;
-    buggy.setEnable(1);
-    linePID.reset();
-    leftSpeedPID.reset();
-    rightSpeedPID.reset();
-    line_lost_count = 0;
-    lineTimer       = LINE_DT;
-    seed_line_targets_from_sensors();
+    start_autonomous_line_follow();
 #endif
 
     while (true) {
+        if (button_start_requested) {
+            button_start_requested = false;
+
+            // Basic debounce to ignore switch bounce.
+            if (buttonDebounceTimer.read_ms() >= 200) {
+                buttonDebounceTimer.reset();
+                if (!line_follow_active) {
+                    start_autonomous_line_follow();
+                    ble_send_line("OK start button");
+                }
+            }
+        }
+
         poll_ble_serial();
         wait_us(500);
         poll_ble_serial();
@@ -246,8 +280,47 @@ int main()
         }
 
         // Speed PID — every 1 ms using cached velocities
-        const float errorLeft  = targetLeft  - cachedLeft;
-        const float errorRight = targetRight - cachedRight;
+        float effectiveTargetLeft  = targetLeft;
+        float effectiveTargetRight = targetRight;
+
+        // Downhill speed limiter: when wheel speed exceeds vmax in either direction,
+        // cap target speed and add an extra proportional braking term.
+        if (cachedLeft > downhillMaxSpeed) {
+            if (effectiveTargetLeft > downhillMaxSpeed) {
+                effectiveTargetLeft = downhillMaxSpeed;
+            }
+        } else if (cachedLeft < -downhillMaxSpeed) {
+            if (effectiveTargetLeft < -downhillMaxSpeed) {
+                effectiveTargetLeft = -downhillMaxSpeed;
+            }
+        }
+
+        if (cachedRight > downhillMaxSpeed) {
+            if (effectiveTargetRight > downhillMaxSpeed) {
+                effectiveTargetRight = downhillMaxSpeed;
+            }
+        } else if (cachedRight < -downhillMaxSpeed) {
+            if (effectiveTargetRight < -downhillMaxSpeed) {
+                effectiveTargetRight = -downhillMaxSpeed;
+            }
+        }
+
+        float errorLeft  = effectiveTargetLeft  - cachedLeft;
+        float errorRight = effectiveTargetRight - cachedRight;
+
+        const float overspeedLeft = (cachedLeft >= 0.0f) ?
+            (cachedLeft - downhillMaxSpeed) :
+            ((-cachedLeft) - downhillMaxSpeed);
+        const float overspeedRight = (cachedRight >= 0.0f) ?
+            (cachedRight - downhillMaxSpeed) :
+            ((-cachedRight) - downhillMaxSpeed);
+
+        if (overspeedLeft > 0.0f) {
+            errorLeft -= (downhillBrakeGain * overspeedLeft) * (cachedLeft >= 0.0f ? 1.0f : -1.0f);
+        }
+        if (overspeedRight > 0.0f) {
+            errorRight -= (downhillBrakeGain * overspeedRight) * (cachedRight >= 0.0f ? 1.0f : -1.0f);
+        }
 
         const int leftCmd  = static_cast<int>(leftSpeedPID.compute(errorLeft,  SPEED_DT));
         const int rightCmd = static_cast<int>(rightSpeedPID.compute(errorRight, SPEED_DT));
@@ -304,6 +377,16 @@ int main()
                 ble_send_line(vel_msg);
             } else if (!telem_vel_enabled) {
                 vel_tick = 0;
+            }
+
+            // Target speed telemetry — every 100 ms
+            static int target_tick = 0;
+            if (telem_target_enabled && ((++target_tick % 10) == 0) && !bt.readable()) {
+                char target_msg[56];
+                snprintf(target_msg, sizeof(target_msg), "TGT L=%.4f,R=%.4f", targetLeft, targetRight);
+                ble_send_line(target_msg);
+            } else if (!telem_target_enabled) {
+                target_tick = 0;
             }
 
             // Position telemetry — every 250 ms (25 × 10 ms ticks)
