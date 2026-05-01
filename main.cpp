@@ -18,19 +18,19 @@ WheelEncoder rightEncoder(PC_8,  PC_6, NC, 10.0f, 256);
 Buggy        buggy(&leftMotor, &rightMotor, &leftEncoder, &rightEncoder, PC_4);
 
 
-PID linePID(31.0f, 0.0f, 2.5f, -150.0f, 150.0f);
-PID leftSpeedPID(30.0f,  0.0f, 0.0f, -2000.0f, 2000.0f);
-PID rightSpeedPID(75.0f, 0.0f, 20.0f, -2000.0f, 2000.0f);
+PID linePID(40.0f, 0.0f, 1.2f, -150.0f, 150.0f);
+PID leftSpeedPID(30.0f,  2.0f, 0.0f, -2000.0f, 2000.0f);
+PID rightSpeedPID(30.0f, 2.0f, 0.0f, -2000.0f, 2000.0f);
 
 
 const float LINE_DT  = 0.0025f;   // 2ms 10 ms  — line PID period
 const float SPEED_DT = 0.001f;  // 1 ms   — main loop tick
 
 
-float baseSpeed = 30.0f;
+float baseSpeed = 25.0f;
 
 #define START_LINE_ON_BOOT  0
-#define LINE_LOST_THRESHOLD 7   // 5 × 10 ms = 50 ms of lost line before stop
+#define LINE_LOST_THRESHOLD 30   // 5 × 10 ms = 50 ms of lost line before stop
 
 
 static bool  line_follow_active = false;
@@ -161,9 +161,18 @@ static void poll_ble_serial()
                 ble_send_line("OK stop");
             } else {
                 stop_autonomous_no_spin();
-                buggy.rotateAngle(140.0f, 125.0f);
+                wait(0.05);
+                buggy.rotateAngle(200.0f, 125.0f);
                 buggy.stop();
                 ble_send_line("OK 180");
+                 line_follow_active = true;
+                buggy.setEnable(1);
+                linePID.reset();
+                leftSpeedPID.reset();
+                rightSpeedPID.reset();
+                line_lost_count = 0;
+                lineTimer       = LINE_DT;
+                seed_line_targets_from_sensors();
             }
             continue;
         }
@@ -261,11 +270,11 @@ int main()
                 if (v[i] > max_val) max_val = v[i];
             }
 
-            if (max_val < 0.45f) {
+            if (max_val < 0.16f) {
                 line_lost_count++;
                 if (line_lost_count >= LINE_LOST_THRESHOLD) {
-                    //stop_autonomous_no_spin();
-                    //ble_send_line("STOP line ended");
+                    stop_autonomous_no_spin();
+                    ble_send_line("STOP line ended");
                 }
                 // Below threshold: coast on last valid targets
             } else {
@@ -279,7 +288,7 @@ int main()
             }
 
             // Raw ADC-normalized sensor values — every line PID tick (10 ms)
-            // // if (telem_raw_enabled && !bt.readable()) {
+            // if (telem_raw_enabled && !bt.readable()) {
             //     char raw_msg[96];
             //     snprintf(raw_msg, sizeof(raw_msg),
             //              "RAW %.4f,%.4f,%.4f,%.4f,%.4f,%.4f",
@@ -288,24 +297,24 @@ int main()
             // }
 
             // Wheel speed telemetry (encoder velocities) — every 100 ms
-            // static int vel_tick = 0;
-            // if (telem_vel_enabled && ((++vel_tick % 10) == 0) && !bt.readable()) {
-            //     char vel_msg[48];
-            //     snprintf(vel_msg, sizeof(vel_msg), "VEL L=%.4f,R=%.4f", cachedLeft, cachedRight);
-            //     ble_send_line(vel_msg);
-            // } else if (!telem_vel_enabled) {
-            //     vel_tick = 0;
-            // }
+            static int vel_tick = 0;
+            if (telem_vel_enabled && ((++vel_tick % 10) == 0) && !bt.readable()) {
+                char vel_msg[48];
+                snprintf(vel_msg, sizeof(vel_msg), "VEL L=%.4f,R=%.4f", cachedLeft, cachedRight);
+                ble_send_line(vel_msg);
+            } else if (!telem_vel_enabled) {
+                vel_tick = 0;
+            }
 
             // Position telemetry — every 250 ms (25 × 10 ms ticks)
-            static int pos_tick = 0;
-            if (telem_ps_enabled && ((++pos_tick % 25) == 0) && !bt.readable()) {
-                char msg[32];
-                snprintf(msg, sizeof(msg), "POS %.4f", filtered_position);
-                ble_send_line(msg);
-            } else if (!telem_ps_enabled) {
-                pos_tick = 0;
-            }
+            // static int pos_tick = 0;
+            // if (telem_ps_enabled && ((++pos_tick % 25) == 0) && !bt.readable()) {
+            //     char msg[32];
+            //     snprintf(msg, sizeof(msg), "POS %.4f", filtered_position);
+            //     ble_send_line(msg);
+            // } else if (!telem_ps_enabled) {
+            //     pos_tick = 0;
+            // }
 
             poll_ble_serial();
         }
