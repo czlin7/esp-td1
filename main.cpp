@@ -20,18 +20,16 @@ Buggy        buggy(&leftMotor, &rightMotor, &leftEncoder, &rightEncoder, PC_4);
 
 
 
-PID linePID(35.5f, 0.0f, 1.0f, -175.0f, 175.0f);
-PID leftSpeedPID(10.0f,  0.0f, 0.0f, -1000.0f, 1000.0f);
-PID rightSpeedPID(10.0f, 0.0f, 0.0f, -1000.0f, 1000.0f);
+PID linePID(0.41f, 0.0f, 0.0f, -1.5f, 1.5f);
+PID leftSpeedPID(2000.0f,  0.0f, 0.0f, -2000.0f, 2000.0f);
+PID rightSpeedPID(2000.0f, 0.0f, 0.0f, -2000.0f, 2000.0f);
 
 
 const float LINE_DT  = 0.003f;   // 2ms 10 ms  — line PID period
 const float SPEED_DT = 0.001f;  // 1 ms   — main loop tick
 
 
-float baseSpeed = 14.0f;
-float downhillMaxSpeed = 25.0f;
-float downhillBrakeGain = 2.5f;
+float baseSpeed = 0.3f; //m/s
 
 #define START_LINE_ON_BOOT  0
 #define LINE_LOST_THRESHOLD 17   // 5 × 10 ms = 50 ms of lost line before stop
@@ -66,9 +64,9 @@ static void ble_send_line(const char *msg)
 static void seed_line_targets_from_sensors()
 {
     const float position   = sensorPCB.getPosition();
-    const float correction = linePID.compute(position, LINE_DT);
-    targetLeft  = baseSpeed + correction;
-    targetRight = baseSpeed - correction;
+    const float steering = linePID.compute(position, LINE_DT);
+    targetLeft  = baseSpeed + steering;
+    targetRight = baseSpeed - steering;
 }
 
 static void start_autonomous_line_follow()
@@ -146,15 +144,7 @@ static void process_ble_text_line(const char *line)
             telem_target_enabled = (kp != 0.0f);
             ble_send_line(telem_target_enabled ? "OK target on" : "OK target off");
             return;
-        } else if (strcmp(cmd, "vmax") == 0) {
-            downhillMaxSpeed = kp;
-            bt.printf("vmax=%.4f\r\n", downhillMaxSpeed);
-            return;
-        } else if (strcmp(cmd, "vbrake") == 0) {
-            downhillBrakeGain = kp;
-            bt.printf("vbrake=%.4f\r\n", downhillBrakeGain);
-            return;
-        }
+        } 
     }
 
     if (sscanf(line, " %15s", cmd) == 1) {
@@ -293,49 +283,13 @@ int main()
         float effectiveTargetLeft  = targetLeft;
         float effectiveTargetRight = targetRight;
 
-        // Downhill speed limiter: when wheel speed exceeds vmax in either direction,
-        // cap target speed and add an extra proportional braking term.
-        if (cachedLeft > downhillMaxSpeed) {
-            if (effectiveTargetLeft > downhillMaxSpeed) {
-                effectiveTargetLeft = downhillMaxSpeed;
-            }
-        } else if (cachedLeft < -downhillMaxSpeed) {
-            if (effectiveTargetLeft < -downhillMaxSpeed) {
-                effectiveTargetLeft = -downhillMaxSpeed;
-            }
-        }
+        float leftError  = targetLeft  - cachedLeft;
+        float rightError = targetRight - cachedRight;
 
-        if (cachedRight > downhillMaxSpeed) {
-            if (effectiveTargetRight > downhillMaxSpeed) {
-                effectiveTargetRight = downhillMaxSpeed;
-            }
-        } else if (cachedRight < -downhillMaxSpeed) {
-            if (effectiveTargetRight < -downhillMaxSpeed) {
-                effectiveTargetRight = -downhillMaxSpeed;
-            }
-        }
+        float leftCmd  = leftSpeedPID.compute(leftError, SPEED_DT);
+        float rightCmd = rightSpeedPID.compute(rightError, SPEED_DT);
 
-        float errorLeft  = effectiveTargetLeft  - cachedLeft;
-        float errorRight = effectiveTargetRight - cachedRight;
-
-        const float overspeedLeft = (cachedLeft >= 0.0f) ?
-            (cachedLeft - downhillMaxSpeed) :
-            ((-cachedLeft) - downhillMaxSpeed);
-        const float overspeedRight = (cachedRight >= 0.0f) ?
-            (cachedRight - downhillMaxSpeed) :
-            ((-cachedRight) - downhillMaxSpeed);
-
-        if (overspeedLeft > 0.0f) {
-            errorLeft -= (downhillBrakeGain * overspeedLeft) * (cachedLeft >= 0.0f ? 1.0f : -1.0f);
-        }
-        if (overspeedRight > 0.0f) {
-            errorRight -= (downhillBrakeGain * overspeedRight) * (cachedRight >= 0.0f ? 1.0f : -1.0f);
-        }
-
-        const int leftCmd  = static_cast<int>(leftSpeedPID.compute(errorLeft,  SPEED_DT));
-        const int rightCmd = static_cast<int>(rightSpeedPID.compute(errorRight, SPEED_DT));
-
-        buggy.drive(leftCmd, rightCmd);
+        buggy.drive((int)leftCmd, (int)rightCmd);
 
         lineTimer += SPEED_DT;
 
@@ -412,3 +366,4 @@ int main()
         }
     }
 }
+
